@@ -55,7 +55,9 @@ gpgpu_sim_config g_the_gpu_config;
 gpgpu_sim *g_the_gpu;
 stream_manager *g_stream_manager;
 
-
+//Susy
+extern unsigned long long  gpu_sim_cycle;
+unsigned long long last_gpu_sim_cycle = 0;
 
 static int sg_argc = 3;
 static const char *sg_argv[] = {"", "-config","gpgpusim.config"};
@@ -157,6 +159,12 @@ void *gpgpu_sim_thread_concurrent(void*)
             }
 
             active=g_the_gpu->active() || !g_stream_manager->empty_protected();
+	    if (((gpu_sim_cycle + gpu_tot_sim_cycle) - last_gpu_sim_cycle) >= 2000) { //Susy
+            	g_the_gpu->print_heartbeat_stats();
+//            	g_the_gpu->update_heartbeat_stats();
+//            	print_simulation_time();
+		last_gpu_sim_cycle = gpu_sim_cycle + gpu_tot_sim_cycle;
+	    }
 
         } while( active && !g_sim_done);
         if(g_debug_execution >= 3) {

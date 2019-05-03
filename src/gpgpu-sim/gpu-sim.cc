@@ -950,6 +950,38 @@ void gpgpu_sim::print_stats()
         printf("----------------------------END-of-Interconnect-DETAILS-------------------------\n" );
     }
 }
+//Susy
+void gpgpu_sim::update_heartbeat_stats() {
+}
+
+void gpgpu_sim::print_heartbeat_stats()
+{
+	FILE *pfile;
+	static char first_line = 1;
+	static unsigned long long last_gpu_sim_cycle = 0;
+	static unsigned long long last_gpu_sim_insn = 0;
+	static unsigned int last_gpu_stall_dramfull = 0;
+	static unsigned int last_gpu_stall_icnt2sh = 0;
+	unsigned long long cycles = gpu_sim_cycle + gpu_tot_sim_cycle - last_gpu_sim_cycle;
+	unsigned long long insn = gpu_sim_insn + gpu_tot_sim_insn - last_gpu_sim_insn;
+	unsigned int stall_dramfull = gpu_stall_dramfull - last_gpu_stall_dramfull;
+	unsigned int stall_icnt2sh = gpu_stall_icnt2sh - last_gpu_stall_icnt2sh;
+	if (first_line) {
+		pfile = fopen("heartbeat_stats.txt","w");
+		fprintf(pfile, "cycles, instructions, stall_dramfull, stall_icnt2sh\n");
+		first_line = 0;
+	}
+	else {
+		pfile = fopen("heartbeat_stats.txt","a");
+	}
+	fprintf(pfile, "%lld, %lld, %d, %d\n",  cycles, insn , stall_dramfull, stall_icnt2sh );
+	fflush(pfile);
+	fclose(pfile);
+	last_gpu_sim_cycle = gpu_sim_cycle + gpu_tot_sim_cycle;
+	last_gpu_sim_insn = gpu_sim_insn + gpu_tot_sim_insn;
+	last_gpu_stall_dramfull = gpu_stall_dramfull;
+	last_gpu_stall_icnt2sh = gpu_stall_icnt2sh;
+}
 
 void gpgpu_sim::deadlock_check()
 {
