@@ -175,6 +175,7 @@ void *gpgpu_sim_thread_concurrent(void*)
             g_the_gpu->print_stats();
             g_the_gpu->update_stats();
             print_simulation_time();
+            g_the_gpu->print_heartbeat_stats();
         }
         pthread_mutex_lock(&g_sim_lock);
         g_sim_active = false;
