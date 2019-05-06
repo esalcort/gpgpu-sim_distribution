@@ -1166,6 +1166,7 @@ void shader_core_ctx::execute()
             } else if( !schedule_wb_now ) {
                 m_fu[n]->issue( issue_inst );
             } else {
+                std::cout << this->get_sid() << " stalled" << std::endl;
                 // stall issue (cannot reserve result bus)
             }
         }
