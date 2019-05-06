@@ -195,11 +195,17 @@ struct memory_config {
       for (i=0; nbkt>0; i++) {
           nbkt = nbkt>>1;
       }
-      bk_tag_length = i;
+      bk_tag_length = i-1;
       assert(nbkgrp>0 && "Number of bank groups cannot be zero");
       tRCDWR = tRCD-(WL+1);
+      if(elimnate_rw_turnaround)
+      {
+    	  tRTW = 0;
+    	  tWTR = 0;
+      } else {
       tRTW = (CL+(BL/data_command_freq_ratio)+2-WL);
-      tWTR = (WL+(BL/data_command_freq_ratio)+tCDLR); 
+      tWTR = (WL+(BL/data_command_freq_ratio)+tCDLR);
+      }
       tWTP = (WL+(BL/data_command_freq_ratio)+tWR);
       dram_atom_size = BL * busW * gpu_n_mem_per_ctrlr; // burst length x bus width x # chips per partition 
 
@@ -213,7 +219,9 @@ struct memory_config {
       m_L2_config.init(&m_address_mapping);
 
       m_valid = true;
-      icnt_flit_size = 32; // Default 32
+
+      sscanf(write_queue_size_opt,"%d:%d:%d",
+                     &gpgpu_frfcfs_dram_write_queue_size,&write_high_watermark,&write_low_watermark);
    }
    void reg_options(class OptionParser * opp);
 
@@ -264,12 +272,25 @@ struct memory_config {
 
    unsigned nbk;
 
+   bool elimnate_rw_turnaround;
+
    unsigned data_command_freq_ratio; // frequency ratio between DRAM data bus and command bus (2 for GDDR3, 4 for GDDR5)
    unsigned dram_atom_size; // number of bytes transferred per read or write command 
 
    linear_to_raw_address_translation m_address_mapping;
 
    unsigned icnt_flit_size;
+
+   unsigned dram_bnk_indexing_policy;
+   unsigned dram_bnkgrp_indexing_policy;
+   bool dual_bus_interface;
+
+   bool seperate_write_queue_enabled;
+   char *write_queue_size_opt;
+   unsigned gpgpu_frfcfs_dram_write_queue_size;
+   unsigned write_high_watermark;
+   unsigned write_low_watermark;
+   bool m_perf_sim_memcpy;
 };
 
 // global counters and flags (please try not to add to this list!!!)
@@ -314,6 +335,12 @@ public:
     unsigned num_shader() const { return m_shader_config.num_shader(); }
     unsigned num_cluster() const { return m_shader_config.n_simt_clusters; }
     unsigned get_max_concurrent_kernel() const { return max_concurrent_kernel; }
+    unsigned checkpoint_option;
+
+    size_t stack_limit() const {return stack_size_limit; }
+    size_t heap_limit() const {return heap_size_limit; }
+    size_t sync_depth_limit() const {return runtime_sync_depth_limit; }
+    size_t pending_launch_count_limit() const {return runtime_pending_launch_count_limit;}
 
 private:
     void init_clock_domains(void ); 
@@ -355,12 +382,45 @@ private:
     int gpu_stat_sample_freq;
     int gpu_runtime_stat_flag;
 
+    // Device Limits
+    size_t stack_size_limit;
+    size_t heap_size_limit;
+    size_t runtime_sync_depth_limit;
+    size_t runtime_pending_launch_count_limit;	
 
-
+ //gpu compute capability options
+    unsigned int gpgpu_compute_capability_major;
+    unsigned int gpgpu_compute_capability_minor;
     unsigned long long liveness_message_freq; 
 
     friend class gpgpu_sim;
 };
+
+struct occupancy_stats {
+    occupancy_stats() : aggregate_warp_slot_filled(0), aggregate_theoretical_warp_slots(0){}
+    occupancy_stats( unsigned long long wsf, unsigned long long tws )
+        : aggregate_warp_slot_filled(wsf), aggregate_theoretical_warp_slots(tws){}
+
+    unsigned long long aggregate_warp_slot_filled;
+    unsigned long long aggregate_theoretical_warp_slots;
+
+    float get_occ_fraction() const {
+        return float(aggregate_warp_slot_filled) / float(aggregate_theoretical_warp_slots);
+    }
+
+    occupancy_stats& operator+=(const occupancy_stats& rhs) {
+        aggregate_warp_slot_filled += rhs.aggregate_warp_slot_filled;
+        aggregate_theoretical_warp_slots += rhs.aggregate_theoretical_warp_slots;
+        return *this;
+    }
+
+    occupancy_stats operator+(const occupancy_stats& rhs) const{
+        return occupancy_stats( aggregate_warp_slot_filled + rhs.aggregate_warp_slot_filled,
+                                aggregate_theoretical_warp_slots + rhs.aggregate_theoretical_warp_slots
+                               );
+    }
+};
+
 
 class gpgpu_sim : public gpgpu_t {
 public:
@@ -372,18 +432,30 @@ public:
    bool can_start_kernel();
    unsigned finished_kernel();
    void set_kernel_done( kernel_info_t *kernel );
+   void stop_all_running_kernels();
 
    void init();
    void cycle();
    bool active(); 
+   bool cycle_insn_cta_max_hit() {
+       return (m_config.gpu_max_cycle_opt && (gpu_tot_sim_cycle + gpu_sim_cycle) >= m_config.gpu_max_cycle_opt) ||
+           (m_config.gpu_max_insn_opt && (gpu_tot_sim_insn + gpu_sim_insn) >= m_config.gpu_max_insn_opt) ||
+           (m_config.gpu_max_cta_opt && (gpu_tot_issued_cta >= m_config.gpu_max_cta_opt) );
+   }
    void print_stats();
    void update_stats();
+   void print_heartbeat_stats();
+   void update_heartbeat_stats();
    void deadlock_check();
 
    void get_pdom_stack_top_info( unsigned sid, unsigned tid, unsigned *pc, unsigned *rpc );
 
    int shared_mem_size() const;
+   int shared_mem_per_block() const;
+   int compute_capability_major() const;
+   int compute_capability_minor() const;
    int num_registers_per_core() const;
+   int num_registers_per_block() const;
    int wrp_size() const;
    int shader_clock() const;
    const struct cudaDeviceProp *get_prop() const;
@@ -391,11 +463,15 @@ public:
 
    unsigned threads_per_core() const;
    bool get_more_cta_left() const;
+   bool kernel_more_cta_left(kernel_info_t *kernel) const;
+   bool hit_max_cta_count() const;
    kernel_info_t *select_kernel();
 
    const gpgpu_sim_config &get_config() const { return m_config; }
    void gpu_print_stat();
    void dump_pipeline( int mask, int s, int m ) const;
+
+    void perf_memcpy_to_gpu( size_t dst_start_addr, size_t count );
 
    //The next three functions added to be used by the functional simulation function
    
@@ -445,7 +521,10 @@ private:
    unsigned m_last_issued_kernel;
 
    std::list<unsigned> m_finished_kernel;
-   unsigned m_total_cta_launched;
+   // m_total_cta_launched == per-kernel count. gpu_tot_issued_cta == global count.
+   unsigned long long m_total_cta_launched;
+   unsigned long long gpu_tot_issued_cta;
+
    unsigned m_last_cluster_issue;
    float * average_pipeline_duty_cycle;
    float * active_sms;
@@ -470,7 +549,6 @@ private:
    class memory_stats_t     *m_memory_stats;
    class power_stat_t *m_power_stats;
    class gpgpu_sim_wrapper *m_gpgpusim_wrapper;
-   unsigned long long  gpu_tot_issued_cta;
    unsigned long long  last_gpu_sim_insn;
 
    unsigned long long  last_liveness_message_time; 
@@ -482,12 +560,14 @@ private:
    std::string executed_kernel_info_string(); //< format the kernel information into a string for stat printout
    void clear_executed_kernel_info(); //< clear the kernel information after stat printout
 
+
 public:
    unsigned long long  gpu_sim_insn;
    unsigned long long  gpu_tot_sim_insn;
    unsigned long long  gpu_sim_insn_last_update;
    unsigned gpu_sim_insn_last_update_sid;
-
+   occupancy_stats gpu_occupancy;
+   occupancy_stats gpu_tot_occupancy;
 
 
    FuncCache get_cache_config(std::string kernel_name);
@@ -496,6 +576,26 @@ public:
    void change_cache_config(FuncCache cache_config);
    void set_cache_config(std::string kernel_name);
 
+   //Jin: functional simulation for CDP
+private:
+   //set by stream operation every time a functoinal simulation is done
+   bool m_functional_sim;
+   kernel_info_t * m_functional_sim_kernel;
+
+public:
+   bool is_functional_sim() { return m_functional_sim; }
+   kernel_info_t * get_functional_kernel() { return m_functional_sim_kernel; }
+   void functional_launch(kernel_info_t * k) {
+     m_functional_sim = true;
+     m_functional_sim_kernel = k;
+   }
+   void finish_functional_sim(kernel_info_t * k) {
+     assert(m_functional_sim);
+     assert(m_functional_sim_kernel == k);
+     m_functional_sim = false;
+     m_functional_sim_kernel = NULL;
+   }
 };
+
 
 #endif

@@ -36,11 +36,16 @@ class kernel_info_t;
 #define MAX_CTA_PER_SHADER 32
 #define MAX_BARRIERS_PER_CTA 16
 
+//After expanding the vector input and output operands 
+#define MAX_INPUT_VALUES 24
+#define MAX_OUTPUT_VALUES 8
+
 enum _memory_space_t {
    undefined_space=0,
    reg_space,
    local_space,
    shared_space,
+   sstarr_space,
    param_space_unclassified,
    param_space_kernel,  /* global to all threads in a kernel : read-only */
    param_space_local,   /* local to a thread : read-writable */
@@ -65,8 +70,10 @@ enum FuncCache
 
 #include <string.h>
 #include <stdio.h>
+#include <set>
 
 typedef unsigned long long new_addr_type;
+typedef unsigned long long cudaTextureObject_t;
 typedef unsigned address_type;
 typedef unsigned addr_t;
 
@@ -76,8 +83,14 @@ enum uarch_op_t {
    NO_OP=-1,
    ALU_OP=1,
    SFU_OP,
+   TENSOR_CORE_OP,
+   DP_OP,
+   SP_OP,
+   INTP_OP,
    ALU_SFU_OP,
    LOAD_OP,
+   TENSOR_CORE_LOAD_OP,
+   TENSOR_CORE_STORE_OP,
    STORE_OP,
    BRANCH_OP,
    BARRIER_OP,
@@ -131,7 +144,10 @@ typedef enum special_operations_t special_ops; // Required to identify for the p
 enum operation_pipeline_t {
     UNKOWN_OP,
     SP__OP,
+	DP__OP,
+	INTP__OP,
     SFU__OP,
+    TENSOR_CORE__OP,
     MEM__OP
 };
 typedef enum operation_pipeline_t operation_pipeline;
@@ -154,14 +170,37 @@ enum _memory_op_t {
 #include <stdlib.h>
 #include <map>
 #include <deque>
+#include <algorithm>
 
 #if !defined(__VECTOR_TYPES_H__)
 struct dim3 {
    unsigned int x, y, z;
 };
 #endif
+struct dim3comp {
+    bool operator() (const dim3 & a, const dim3 & b) const
+    {    
+        if(a.z < b.z)
+            return true;
+        else if(a.y < b.y)
+            return true;
+        else if (a.x < b.x)
+            return true;
+        else
+            return false;
+    }
+};
 
 void increment_x_then_y_then_z( dim3 &i, const dim3 &bound);
+
+//Jin: child kernel information for CDP
+#include "stream_manager.h"
+class stream_manager;
+struct CUstream_st;
+extern stream_manager * g_stream_manager;
+//support for pinned memories added
+extern std::map<void *,void **> pinned_memory;
+extern std::map<void *, size_t> pinned_memory_size;
 
 class kernel_info_t {
 public:
@@ -173,7 +212,7 @@ public:
 //      m_num_cores_running=0;
 //      m_param_mem=NULL;
 //   }
-   kernel_info_t( dim3 gridDim, dim3 blockDim, class function_info *entry );
+   kernel_info_t( dim3 gridDim, dim3 blockDim, class function_info *entry, std::map<std::string, const struct cudaArray*> nameToCudaArray, std::map<std::string, const struct textureInfo*> nameToTextureInfo);
    ~kernel_info_t();
 
    void inc_running() { m_num_cores_running++; }
@@ -211,6 +250,10 @@ public:
       m_next_tid.z=0;
    }
    dim3 get_next_cta_id() const { return m_next_cta; }
+   unsigned get_next_cta_id_single() const 
+   {
+      return m_next_cta.x + m_grid_dim.x*m_next_cta.y + m_grid_dim.x*m_grid_dim.y*m_next_cta.z;
+    }
    bool no_more_ctas_to_run() const 
    {
       return (m_next_cta.x >= m_grid_dim.x || m_next_cta.y >= m_grid_dim.y || m_next_cta.z >= m_grid_dim.z );
@@ -232,6 +275,23 @@ public:
    std::list<class ptx_thread_info *> &active_threads() { return m_active_threads; }
    class memory_space *get_param_memory() { return m_param_mem; }
 
+   
+   //The following functions access texture bindings present at the kernel's launch
+   
+   const struct cudaArray* get_texarray( const std::string &texname ) const
+   {
+      std::map<std::string,const struct cudaArray*>::const_iterator t=m_NameToCudaArray.find(texname);
+      assert(t != m_NameToCudaArray.end());
+      return t->second;
+   }
+
+   const struct textureInfo* get_texinfo( const std::string &texname ) const
+   {
+      std::map<std::string, const struct textureInfo*>::const_iterator t=m_NameToTextureInfo.find(texname);
+      assert(t != m_NameToTextureInfo.end());
+      return t->second;
+   }
+
 private:
    kernel_info_t( const kernel_info_t & ); // disable copy constructor
    void operator=( const kernel_info_t & ); // disable copy operator
@@ -240,6 +300,10 @@ private:
 
    unsigned m_uid;
    static unsigned m_next_uid;
+   
+   //These maps contain the snapshot of the texture mappings at kernel launch
+   std::map<std::string, const struct cudaArray*> m_NameToCudaArray;
+   std::map<std::string, const struct textureInfo*> m_NameToTextureInfo;
 
    dim3 m_grid_dim;
    dim3 m_block_dim;
@@ -250,6 +314,37 @@ private:
 
    std::list<class ptx_thread_info *> m_active_threads;
    class memory_space *m_param_mem;
+
+public:
+   //Jin: parent and child kernel management for CDP
+   void set_parent(kernel_info_t * parent, dim3 parent_ctaid, dim3 parent_tid);
+   void set_child(kernel_info_t * child);
+   void remove_child(kernel_info_t * child);
+   bool is_finished();
+   bool children_all_finished();
+   void notify_parent_finished();
+   CUstream_st * create_stream_cta(dim3 ctaid);
+   CUstream_st * get_default_stream_cta(dim3 ctaid);
+   bool cta_has_stream(dim3 ctaid, CUstream_st* stream);
+   void destroy_cta_streams();
+   void print_parent_info();
+   kernel_info_t * get_parent() { return m_parent_kernel; }
+
+private:
+   kernel_info_t * m_parent_kernel;
+   dim3 m_parent_ctaid;
+   dim3 m_parent_tid;
+   std::list<kernel_info_t *> m_child_kernels; //child kernel launched
+   std::map< dim3, std::list<CUstream_st *>, dim3comp > m_cta_streams; //streams created in each CTA
+
+//Jin: kernel timing
+public:
+   unsigned long long launch_cycle;
+   unsigned long long start_cycle;
+   unsigned long long end_cycle;
+   unsigned m_launch_latency;
+
+   mutable bool volta_cache_config_set;
 };
 
 struct core_config {
@@ -283,12 +378,14 @@ struct core_config {
     unsigned gpgpu_shmem_sizeDefault;
     unsigned gpgpu_shmem_sizePrefL1;
     unsigned gpgpu_shmem_sizePrefShared;
+    unsigned mem_unit_ports;
 
     // texture and constant cache line sizes (used to determine number of memory accesses)
     unsigned gpgpu_cache_texl1_linesize;
     unsigned gpgpu_cache_constl1_linesize;
 
 	unsigned gpgpu_max_insn_issue_per_warp;
+	bool gmem_skip_L1D; // on = global memory access always skip the L1 cache
 };
 
 // bounded stack that implements simt reconvergence using pdom mechanism from MICRO'07 paper
@@ -309,7 +406,9 @@ public:
     const simt_mask_t &get_active_mask() const;
     void     get_pdom_stack_top_info( unsigned *pc, unsigned *rpc ) const;
     unsigned get_rp() const;
-    void     print(FILE*fp) const;
+    void     print(FILE *fp) const;
+    void     resume(char * fname) ;
+    void    print_checkpoint (FILE *fout) const;
 
 protected:
     unsigned m_warp_id;
@@ -334,12 +433,13 @@ protected:
     std::deque<simt_stack_entry> m_stack;
 };
 
-#define GLOBAL_HEAP_START 0x80000000
+#define GLOBAL_HEAP_START 0xC0000000
    // start allocating from this address (lower values used for allocating globals in .ptx file)
 #define SHARED_MEM_SIZE_MAX (64*1024)
 #define LOCAL_MEM_SIZE_MAX (8*1024)
 #define MAX_STREAMING_MULTIPROCESSORS 64
 #define MAX_THREAD_PER_SM 2048
+#define MAX_WARP_PER_SM 64
 #define TOTAL_LOCAL_MEM_PER_SM (MAX_THREAD_PER_SM*LOCAL_MEM_SIZE_MAX)
 #define TOTAL_SHARED_MEM (MAX_STREAMING_MULTIPROCESSORS*SHARED_MEM_SIZE_MAX)
 #define TOTAL_LOCAL_MEM (MAX_STREAMING_MULTIPROCESSORS*MAX_THREAD_PER_SM*LOCAL_MEM_SIZE_MAX)
@@ -428,14 +528,28 @@ public:
     const char* get_ptx_inst_debug_file() const  { return g_ptx_inst_debug_file; }
     int         get_ptx_inst_debug_thread_uid() const { return g_ptx_inst_debug_thread_uid; }
     unsigned    get_texcache_linesize() const { return m_texcache_linesize; }
-
+    int get_checkpoint_option() const {return checkpoint_option; }
+    int get_checkpoint_kernel() const {return checkpoint_kernel; }
+    int get_checkpoint_CTA() const {return checkpoint_CTA; }
+    int get_resume_option() const {return resume_option; }
+    int get_resume_kernel() const {return resume_kernel; }
+    int get_resume_CTA() const {return resume_CTA; }
+    int get_checkpoint_CTA_t() const {return checkpoint_CTA_t; }
+    int get_checkpoint_insn_Y() const {return checkpoint_insn_Y; }
 private:
     // PTX options
     int m_ptx_convert_to_ptxplus;
     int m_ptx_use_cuobjdump;
     int m_experimental_lib_support;
     unsigned m_ptx_force_max_capability;
-
+    int checkpoint_option;
+    int checkpoint_kernel;
+    int checkpoint_CTA;
+    int resume_option;
+    int resume_kernel;
+    int resume_CTA;
+    int checkpoint_CTA_t;
+    int checkpoint_insn_Y;
     int   g_ptx_inst_debug_to_file;
     char* g_ptx_inst_debug_file;
     int   g_ptx_inst_debug_thread_uid;
@@ -443,9 +557,18 @@ private:
     unsigned m_texcache_linesize;
 };
 
+
 class gpgpu_t {
 public:
     gpgpu_t( const gpgpu_functional_sim_config &config );
+    int checkpoint_option;
+    int checkpoint_kernel;
+    int checkpoint_CTA;
+    int resume_option;
+    int resume_kernel;
+    int resume_CTA;
+    int checkpoint_CTA_t;
+    int checkpoint_insn_Y;
     void* gpu_malloc( size_t size );
     void* gpu_mallocarray( size_t count );
     void  gpu_memset( size_t dst_start_addr, int c, size_t count );
@@ -459,36 +582,43 @@ public:
 
     void gpgpu_ptx_sim_bindTextureToArray(const struct textureReference* texref, const struct cudaArray* array);
     void gpgpu_ptx_sim_bindNameToTexture(const char* name, const struct textureReference* texref, int dim, int readmode, int ext);
+    void gpgpu_ptx_sim_unbindTexture(const struct textureReference* texref);
     const char* gpgpu_ptx_sim_findNamefromTexture(const struct textureReference* texref);
 
-    const struct textureReference* get_texref(const std::string &texname) const
+    const struct textureReference* get_texref( const std::string &texname ) const
     {
-        std::map<std::string, const struct textureReference*>::const_iterator t=m_NameToTextureRef.find(texname);
+        std::map<std::string, std::set<const struct textureReference*> >::const_iterator t=m_NameToTextureRef.find(texname);
         assert( t != m_NameToTextureRef.end() );
-        return t->second;
+        return *(t->second.begin());
     }
-    const struct cudaArray* get_texarray( const struct textureReference *texref ) const
+
+    const struct cudaArray* get_texarray( const std::string &texname ) const
     {
-        std::map<const struct textureReference*,const struct cudaArray*>::const_iterator t=m_TextureRefToCudaArray.find(texref);
-        assert(t != m_TextureRefToCudaArray.end());
-        return t->second;
-    }
-    const struct textureInfo* get_texinfo( const struct textureReference *texref ) const
-    {
-        std::map<const struct textureReference*, const struct textureInfo*>::const_iterator t=m_TextureRefToTexureInfo.find(texref);
-        assert(t != m_TextureRefToTexureInfo.end());
+        std::map<std::string,const struct cudaArray*>::const_iterator t=m_NameToCudaArray.find(texname);
+        assert(t != m_NameToCudaArray.end());
         return t->second;
     }
 
-    const struct textureReferenceAttr* get_texattr( const struct textureReference *texref ) const
+    const struct textureInfo* get_texinfo( const std::string &texname ) const
     {
-        std::map<const struct textureReference*, const struct textureReferenceAttr*>::const_iterator t=m_TextureRefToAttribute.find(texref);
-        assert(t != m_TextureRefToAttribute.end());
+        std::map<std::string, const struct textureInfo*>::const_iterator t=m_NameToTextureInfo.find(texname);
+        assert(t != m_NameToTextureInfo.end());
+        return t->second;
+    }
+
+    const struct textureReferenceAttr* get_texattr( const std::string &texname ) const
+    {
+        std::map<std::string, const struct textureReferenceAttr*>::const_iterator t=m_NameToAttribute.find(texname);
+        assert(t != m_NameToAttribute.end());
         return t->second;
     }
 
     const gpgpu_functional_sim_config &get_config() const { return m_function_model_config; }
     FILE* get_ptx_inst_debug_file() { return ptx_inst_debug_file; }
+    
+    //  These maps return the current texture mappings for the GPU at any given time.
+    std::map<std::string, const struct cudaArray*> getNameArrayMapping() {return m_NameToCudaArray;}
+    std::map<std::string, const struct textureInfo*> getNameInfoMapping() {return m_NameToTextureInfo;}
 
 protected:
     const gpgpu_functional_sim_config &m_function_model_config;
@@ -497,26 +627,30 @@ protected:
     class memory_space *m_global_mem;
     class memory_space *m_tex_mem;
     class memory_space *m_surf_mem;
-    
+
     unsigned long long m_dev_malloc;
-    
-    std::map<std::string, const struct textureReference*> m_NameToTextureRef;
-    std::map<const struct textureReference*,const struct cudaArray*> m_TextureRefToCudaArray;
-    std::map<const struct textureReference*, const struct textureInfo*> m_TextureRefToTexureInfo;
-    std::map<const struct textureReference*, const struct textureReferenceAttr*> m_TextureRefToAttribute;
+    //  These maps contain the current texture mappings for the GPU at any given time. 
+    std::map<std::string, std::set<const struct textureReference*> > m_NameToTextureRef;
+    std::map<const struct textureReference*, std::string> m_TextureRefToName;
+    std::map<std::string, const struct cudaArray*> m_NameToCudaArray;
+    std::map<std::string, const struct textureInfo*> m_NameToTextureInfo;
+    std::map<std::string, const struct textureReferenceAttr*> m_NameToAttribute;
 };
 
-struct gpgpu_ptx_sim_kernel_info 
+struct gpgpu_ptx_sim_info
 {
    // Holds properties of the kernel (Kernel's resource use). 
    // These will be set to zero if a ptxinfo file is not present.
    int lmem;
    int smem;
    int cmem;
+   int gmem;
    int regs;
+   unsigned maxthreads;
    unsigned ptx_version;
    unsigned sm_target;
 };
+
 
 struct gpgpu_ptx_sim_arg {
    gpgpu_ptx_sim_arg() { m_start=NULL; }
@@ -550,6 +684,7 @@ public:
       return false;
    }
    enum _memory_space_t get_type() const { return m_type; }
+   void set_type( enum _memory_space_t t ) { m_type = t; }
    unsigned get_bank() const { return m_bank; }
    void set_bank( unsigned b ) { m_bank = b; }
    bool is_const() const { return (m_type == const_space) || (m_type == param_space_kernel); }
@@ -563,6 +698,9 @@ private:
 
 const unsigned MAX_MEMORY_ACCESS_SIZE = 128;
 typedef std::bitset<MAX_MEMORY_ACCESS_SIZE> mem_access_byte_mask_t;
+const unsigned SECTOR_CHUNCK_SIZE = 4;   //four sectors
+const unsigned SECTOR_SIZE = 32 ;        //sector is 32 bytes width
+typedef std::bitset<SECTOR_CHUNCK_SIZE> mem_access_sector_mask_t;
 #define NO_PARTIAL_WRITE (mem_access_byte_mask_t())
 
 #define MEM_ACCESS_TYPE_TUP_DEF \
@@ -598,6 +736,7 @@ enum cache_operator_type {
     CACHE_ALL,          // .ca
     CACHE_LAST_USE,     // .lu
     CACHE_VOLATILE,     // .cv
+    CACHE_L1,     // .nc
                        
     // loads and stores 
     CACHE_STREAMING,    // .cs
@@ -627,8 +766,9 @@ public:
                  unsigned size, 
                  bool wr, 
                  const active_mask_t &active_mask,
-                 const mem_access_byte_mask_t &byte_mask )
-    : m_warp_mask(active_mask), m_byte_mask(byte_mask)
+                 const mem_access_byte_mask_t &byte_mask,
+		 const mem_access_sector_mask_t &sector_mask)
+    : m_warp_mask(active_mask), m_byte_mask(byte_mask), m_sector_mask(sector_mask)
    {
       init();
       m_type = type;
@@ -644,6 +784,7 @@ public:
    bool is_write() const { return m_write; }
    enum mem_access_type get_type() const { return m_type; }
    mem_access_byte_mask_t get_byte_mask() const { return m_byte_mask; }
+   mem_access_sector_mask_t get_sector_mask() const { return m_sector_mask; }
 
    void print(FILE *fp) const
    {
@@ -677,6 +818,7 @@ private:
    mem_access_type m_type;
    active_mask_t m_warp_mask;
    mem_access_byte_mask_t m_byte_mask;
+   mem_access_sector_mask_t m_sector_mask;
 
    static unsigned sm_next_access_uid;
 };
@@ -696,7 +838,7 @@ public:
 };
 
 // the maximum number of destination, source, or address uarch operands in a instruction
-#define MAX_REG_OPERANDS 8
+#define MAX_REG_OPERANDS 32 
 
 struct dram_callback_t {
    dram_callback_t() { function=NULL; instruction=NULL; thread=NULL; }
@@ -743,8 +885,8 @@ public:
     {
         fprintf(fp," [inst @ pc=0x%04x] ", pc );
     }
-    bool is_load() const { return (op == LOAD_OP || memory_op == memory_load); }
-    bool is_store() const { return (op == STORE_OP || memory_op == memory_store); }
+    bool is_load() const { return (op == LOAD_OP ||op==TENSOR_CORE_LOAD_OP || memory_op == memory_load); }
+    bool is_store() const { return (op == STORE_OP ||op==TENSOR_CORE_STORE_OP || memory_op == memory_store); }
     unsigned get_num_operands() const {return num_operands;}
     unsigned get_num_regs() const {return num_regs;}
     void set_num_regs(unsigned num) {num_regs=num;}
@@ -771,8 +913,10 @@ public:
 
     address_type reconvergence_pc; // -1 => not a branch, -2 => use function return address
     
-    unsigned out[4];
-    unsigned in[4];
+    unsigned out[8];
+    unsigned outcount;
+    unsigned in[24];
+    unsigned incount;
     unsigned char is_vectorin;
     unsigned char is_vectorout;
     int pred; // predicate register number
@@ -783,7 +927,7 @@ public:
         int src[MAX_REG_OPERANDS];
     } arch_reg;
     //int arch_reg[MAX_REG_OPERANDS]; // register number for bank conflict evaluation
-    unsigned latency; // operation latency 
+    unsigned latency; // operation latency
     unsigned initiation_interval;
 
     unsigned data_size; // what is the size of the word being operated on?
@@ -822,6 +966,7 @@ public:
         m_mem_accesses_created=false;
         m_cache_hit=false;
         m_is_printf=false;
+        m_is_cdp = 0;
     }
     virtual ~warp_inst_t(){
     }
@@ -834,7 +979,7 @@ public:
     { 
         m_empty=true; 
     }
-    void issue( const active_mask_t &mask, unsigned warp_id, unsigned long long cycle, int dynamic_warp_id ) 
+    void issue( const active_mask_t &mask, unsigned warp_id, unsigned long long cycle, int dynamic_warp_id, int sch_id )
     {
         m_warp_active_mask = mask;
         m_warp_issued_mask = mask; 
@@ -845,6 +990,7 @@ public:
         cycles = initiation_interval;
         m_cache_hit=false;
         m_empty=false;
+        m_scheduler_id=sch_id;
     }
     const active_mask_t & get_active_mask() const
     {
@@ -870,7 +1016,18 @@ public:
         for(unsigned i=0; i<num_addrs; i++)
             m_per_scalar_thread[n].memreqaddr[i] = addr[i];
     }
-
+    void print_m_accessq(){
+    		
+		if(accessq_empty())
+			return;
+		else{
+			printf("Printing mem access generated\n");
+			std::list<mem_access_t>::iterator it;	
+			for (it = m_accessq.begin(); it != m_accessq.end(); ++it){
+   				 printf("MEM_TXN_GEN:%s:%x, Size:%d \n",mem_access_type_str(it->get_type()), it->get_addr(),it->get_size());
+			}	
+		}
+    }   
     struct transaction_info {
         std::bitset<4> chunks; // bitmask: 32-byte chunks accessed
         mem_access_byte_mask_t bytes;
@@ -885,9 +1042,9 @@ public:
     };
 
     void generate_mem_accesses();
-    void memory_coalescing_arch_13( bool is_write, mem_access_type access_type );
-    void memory_coalescing_arch_13_atomic( bool is_write, mem_access_type access_type );
-    void memory_coalescing_arch_13_reduce_and_send( bool is_write, mem_access_type access_type, const transaction_info &info, new_addr_type addr, unsigned segment_size );
+    void memory_coalescing_arch( bool is_write, mem_access_type access_type );
+    void memory_coalescing_arch_atomic( bool is_write, mem_access_type access_type );
+    void memory_coalescing_arch_reduce_and_send( bool is_write, mem_access_type access_type, const transaction_info &info, new_addr_type addr, unsigned segment_size );
 
     void add_callback( unsigned lane_id, 
                        void (*function)(const class inst_t*, class ptx_thread_info*),
@@ -923,6 +1080,10 @@ public:
     unsigned warp_id() const 
     { 
         assert( !m_empty );
+        return m_warp_id; 
+    }
+    unsigned warp_id_func() const // to be used in functional simulations only
+    { 
         return m_warp_id; 
     }
     unsigned dynamic_warp_id() const 
@@ -963,6 +1124,7 @@ public:
 
     void print( FILE *fout ) const;
     unsigned get_uid() const { return m_uid; }
+    unsigned get_schd_id() const { return m_scheduler_id; }
 
 
 protected:
@@ -994,12 +1156,33 @@ protected:
     std::list<mem_access_t> m_accessq;
 
     static unsigned sm_next_uid;
+
+    unsigned m_scheduler_id;  //the scheduler that issues this inst
+
+    //Jin: cdp support
+public:
+    int m_is_cdp;
+    
 };
 
 void move_warp( warp_inst_t *&dst, warp_inst_t *&src );
 
 size_t get_kernel_code_size( class function_info *entry );
+class checkpoint
+{    
+public:
 
+     checkpoint();
+    ~checkpoint(){
+      printf("clasfsfss destructed\n");
+    }
+
+    void load_global_mem(class memory_space *temp_mem, char * f1name);
+    void store_global_mem(class memory_space *mem, char * fname , char * format);
+    unsigned radnom;
+
+
+};
 /*
  * This abstract class used as a base for functional and performance and simulation, it has basic functional simulation
  * data structures and procedures. 
@@ -1048,6 +1231,7 @@ class core_t {
         warp_inst_t getExecuteWarp(unsigned warpId);
         void get_pdom_stack_top_info( unsigned warpId, unsigned *pc, unsigned *rpc ) const;
         kernel_info_t * get_kernel_info(){ return m_kernel;}
+        class ptx_thread_info ** get_thread_info() { return m_thread; }
         unsigned get_warp_size() const { return m_warp_size; }
         void and_reduction(unsigned ctaid, unsigned barid, bool value) { reduction_storage[ctaid][barid] &= value; }
         void or_reduction(unsigned ctaid, unsigned barid, bool value) { reduction_storage[ctaid][barid] |= value; }
@@ -1080,6 +1264,14 @@ public:
 			}
 		}
 		return false;
+	}
+	bool has_free(bool sub_core_model, unsigned reg_id){
+		//in subcore model, each sched has a one specific reg to use (based on sched id)
+		if(!sub_core_model)
+			return has_free();
+
+		assert(reg_id < regs.size());
+		return regs[reg_id]->empty();
 	}
 	bool has_ready(){
 		for( unsigned i = 0; i < regs.size(); i++ ) {
@@ -1134,6 +1326,23 @@ public:
 		}
 		assert(0 && "No free registers found");
 		return NULL;
+	}
+
+	warp_inst_t ** get_free(bool sub_core_model, unsigned reg_id){
+		//in subcore model, each sched has a one specific reg to use (based on sched id)
+		if(!sub_core_model)
+			return get_free();
+
+		assert(reg_id < regs.size());
+		if( regs[reg_id]->empty() ) {
+			return &regs[reg_id];
+		}
+		assert(0 && "No free register found");
+		return NULL;
+	}
+
+	unsigned get_size(){
+		return regs.size();
 	}
 
 private:

@@ -35,9 +35,67 @@
 #include "gpgpu-sim/gpu-sim.h"
 #include "option_parser.h"
 #include <algorithm>
+#include <sys/stat.h>
+#include <sstream>
+#include <iostream>
 
 unsigned mem_access_t::sm_next_access_uid = 0;   
 unsigned warp_inst_t::sm_next_uid = 0;
+
+checkpoint::checkpoint()
+{
+
+    struct stat st = {0};
+
+    if (stat("checkpoint_files", &st) == -1) {
+        mkdir("checkpoint_files", 0777);
+    }
+
+}
+void checkpoint::load_global_mem(class memory_space *temp_mem, char * f1name)
+{
+
+    FILE * fp2 = fopen(f1name, "r");
+    assert(fp2!=NULL);
+      char line [ 128 ]; /* or other suitable maximum line size */
+      unsigned int offset ;
+      while ( fgets ( line, sizeof line, fp2 ) != NULL ) /* read a line */
+      {
+         unsigned int index;
+         char * pch;
+         pch = strtok (line," ");
+         if (pch[0]=='g' || pch[0]=='s' || pch[0]=='l')
+         {
+
+           pch = strtok (NULL, " ");
+           
+           std::stringstream ss;
+            ss << std::hex << pch;
+            ss >> index;
+
+           offset=0;
+         }
+         else {
+            unsigned int  data;
+            std::stringstream ss;
+            ss << std::hex << pch;
+            ss >> data;
+            temp_mem->write_only(offset,index, 4,&data);
+            offset= offset+4;
+         }
+         //fputs ( line, stdout ); /* write the line */
+      }
+      fclose ( fp2 );
+}
+
+void checkpoint::store_global_mem(class memory_space * mem, char *fname, char * format)
+{
+
+      FILE * fp3 = fopen(fname, "w");
+      assert(fp3!=NULL);
+      mem->print(format,fp3);
+      fclose(fp3);
+}
 
 void move_warp( warp_inst_t *&dst, warp_inst_t *&src )
 {
@@ -64,6 +122,31 @@ void gpgpu_functional_sim_config::reg_options(class OptionParser * opp)
 	                 &m_experimental_lib_support,
 	                 "Try to extract code from cuda libraries [Broken because of unknown cudaGetExportTable]",
 	                 "0");
+  option_parser_register(opp, "-checkpoint_option", OPT_INT32, &checkpoint_option, 
+               " checkpointing flag (0 = no checkpoint)",
+               "0");
+  option_parser_register(opp, "-checkpoint_kernel", OPT_INT32, &checkpoint_kernel, 
+               " checkpointing during execution of which kernel (1- 1st kernel)",
+               "1");
+  option_parser_register(opp, "-checkpoint_CTA", OPT_INT32, &checkpoint_CTA, 
+               " checkpointing after # of CTA (< less than total CTA)",
+               "0");
+  option_parser_register(opp, "-resume_option", OPT_INT32, &resume_option, 
+               " resume flag (0 = no resume)",
+               "0");
+  option_parser_register(opp, "-resume_kernel", OPT_INT32, &resume_kernel, 
+               " Resume from which kernel (1= 1st kernel)",
+               "0");
+   option_parser_register(opp, "-resume_CTA", OPT_INT32, &resume_CTA, 
+               " resume from which CTA ",
+               "0");
+      option_parser_register(opp, "-checkpoint_CTA_t", OPT_INT32, &checkpoint_CTA_t, 
+               " resume from which CTA ",
+               "0");
+         option_parser_register(opp, "-checkpoint_insn_Y", OPT_INT32, &checkpoint_insn_Y, 
+               " resume from which CTA ",
+               "0");
+
     option_parser_register(opp, "-gpgpu_ptx_convert_to_ptxplus", OPT_BOOL,
                  &m_ptx_convert_to_ptxplus,
                  "Convert SASS (native ISA) to ptxplus and run ptxplus",
@@ -93,10 +176,25 @@ gpgpu_t::gpgpu_t( const gpgpu_functional_sim_config &config )
     : m_function_model_config(config)
 {
    m_global_mem = new memory_space_impl<8192>("global",64*1024);
+   
    m_tex_mem = new memory_space_impl<8192>("tex",64*1024);
    m_surf_mem = new memory_space_impl<8192>("surf",64*1024);
 
    m_dev_malloc=GLOBAL_HEAP_START; 
+   checkpoint_option = m_function_model_config.get_checkpoint_option();
+   checkpoint_kernel = m_function_model_config.get_checkpoint_kernel();
+   checkpoint_CTA = m_function_model_config.get_checkpoint_CTA();
+   resume_option = m_function_model_config.get_resume_option();
+   resume_kernel = m_function_model_config.get_resume_kernel();
+   resume_CTA = m_function_model_config.get_resume_CTA();
+   checkpoint_CTA_t = m_function_model_config.get_checkpoint_CTA_t();
+   checkpoint_insn_Y = m_function_model_config.get_checkpoint_insn_Y();
+
+   // initialize texture mappings to empty
+   m_NameToTextureInfo.clear();
+   m_NameToCudaArray.clear();
+   m_TextureRefToName.clear();
+   m_NameToAttribute.clear();
 
    if(m_function_model_config.get_ptx_inst_debug_to_file() != 0) 
       ptx_inst_debug_file = fopen(m_function_model_config.get_ptx_inst_debug_file(), "w");
@@ -184,7 +282,7 @@ void warp_inst_t::generate_mem_accesses()
 {
     if( empty() || op == MEMORY_BARRIER_OP || m_mem_accesses_created ) 
         return;
-    if ( !((op == LOAD_OP) || (op == STORE_OP)) )
+    if (!((op == LOAD_OP) || (op==TENSOR_CORE_LOAD_OP)   || (op == STORE_OP)||(op==TENSOR_CORE_STORE_OP)))
         return; 
     if( m_warp_active_mask.count() == 0 ) 
         return; // predicated off
@@ -213,6 +311,7 @@ void warp_inst_t::generate_mem_accesses()
         access_type = is_write? LOCAL_ACC_W: LOCAL_ACC_R;   
         break;
     case shared_space: break;
+    case sstarr_space: break;
     default: assert(0); break; 
     }
 
@@ -220,7 +319,8 @@ void warp_inst_t::generate_mem_accesses()
     new_addr_type cache_block_size = 0; // in bytes 
 
     switch( space.get_type() ) {
-    case shared_space: {
+    case shared_space:
+    case sstarr_space: {
         unsigned subwarp_size = m_config->warp_size / m_config->mem_warp_parts;
         unsigned total_accesses=0;
         for( unsigned subwarp=0; subwarp <  m_config->mem_warp_parts; subwarp++ ) {
@@ -314,12 +414,12 @@ void warp_inst_t::generate_mem_accesses()
         break;
 
     case global_space: case local_space: case param_space_local:
-        if( m_config->gpgpu_coalesce_arch == 13 ) {
-           if(isatomic())
-               memory_coalescing_arch_13_atomic(is_write, access_type);
-           else
-               memory_coalescing_arch_13(is_write, access_type);
-        } else abort();
+    	 if( m_config->gpgpu_coalesce_arch >= 13) {
+            if(isatomic())
+                memory_coalescing_arch_atomic(is_write, access_type);
+            else
+                memory_coalescing_arch(is_write, access_type);
+         } else abort();
 
         break;
 
@@ -343,7 +443,7 @@ void warp_inst_t::generate_mem_accesses()
                 byte_mask.set(idx+i);
         }
         for( a=accesses.begin(); a != accesses.end(); ++a ) 
-            m_accessq.push_back( mem_access_t(access_type,a->first,cache_block_size,is_write,a->second,byte_mask) );
+            m_accessq.push_back( mem_access_t(access_type,a->first,cache_block_size,is_write,a->second, byte_mask, mem_access_sector_mask_t()));
     }
 
     if ( space.get_type() == global_space ) {
@@ -352,15 +452,32 @@ void warp_inst_t::generate_mem_accesses()
     m_mem_accesses_created=true;
 }
 
-void warp_inst_t::memory_coalescing_arch_13( bool is_write, mem_access_type access_type )
+void warp_inst_t::memory_coalescing_arch( bool is_write, mem_access_type access_type )
 {
     // see the CUDA manual where it discusses coalescing rules before reading this
     unsigned segment_size = 0;
     unsigned warp_parts = m_config->mem_warp_parts;
+    bool sector_segment_size = false;
+
+    if(m_config->gpgpu_coalesce_arch >= 20 && m_config->gpgpu_coalesce_arch < 39)
+    {
+    	//Fermi and Kepler, L1 is normal and L2 is sector
+    	if(m_config->gmem_skip_L1D || cache_op == CACHE_GLOBAL)
+    		sector_segment_size = true;
+    	else
+    		sector_segment_size = false;
+    }
+    else if(m_config->gpgpu_coalesce_arch >= 40)
+    {
+    	//Maxwell, Pascal and Volta, L1 and L2 are sectors
+    	//all requests should be 32 bytes
+    	sector_segment_size = true;
+    }
+
     switch( data_size ) {
     case 1: segment_size = 32; break;
-    case 2: segment_size = 64; break;
-    case 4: case 8: case 16: segment_size = 128; break;
+    case 2: segment_size = sector_segment_size? 32 : 64; break;
+    case 4: case 8: case 16: segment_size = sector_segment_size? 32 : 128; break;
     }
     unsigned subwarp_size = m_config->warp_size / warp_parts;
 
@@ -387,7 +504,8 @@ void warp_inst_t::memory_coalescing_arch_13( bool is_write, mem_access_type acce
 
             assert(num_accesses <= MAX_ACCESSES_PER_INSN_PER_THREAD);
 
-            for(unsigned access=0; access<num_accesses; access++) {
+//            for(unsigned access=0; access<num_accesses; access++) {
+            for(unsigned access=0; (access<MAX_ACCESSES_PER_INSN_PER_THREAD)&&(m_per_scalar_thread[thread].memreqaddr[access]!=0); access++) {
                 new_addr_type addr = m_per_scalar_thread[thread].memreqaddr[access];
                 unsigned block_address = line_size_based_tag_func(addr,segment_size);
                 unsigned chunk = (addr&127)/32; // which 32-byte chunk within in a 128-byte chunk does this thread access?
@@ -410,24 +528,41 @@ void warp_inst_t::memory_coalescing_arch_13( bool is_write, mem_access_type acce
             new_addr_type addr = t->first;
             const transaction_info &info = t->second;
 
-            memory_coalescing_arch_13_reduce_and_send(is_write, access_type, info, addr, segment_size);
+            memory_coalescing_arch_reduce_and_send(is_write, access_type, info, addr, segment_size);
 
         }
     }
 }
 
-void warp_inst_t::memory_coalescing_arch_13_atomic( bool is_write, mem_access_type access_type )
+void warp_inst_t::memory_coalescing_arch_atomic( bool is_write, mem_access_type access_type )
 {
 
    assert(space.get_type() == global_space); // Atomics allowed only for global memory
 
    // see the CUDA manual where it discusses coalescing rules before reading this
    unsigned segment_size = 0;
-   unsigned warp_parts = 2;
+   unsigned warp_parts = m_config->mem_warp_parts;
+   bool sector_segment_size = false;
+
+   if(m_config->gpgpu_coalesce_arch >= 20 && m_config->gpgpu_coalesce_arch < 39)
+   {
+	//Fermi and Kepler, L1 is normal and L2 is sector
+	if(m_config->gmem_skip_L1D || cache_op == CACHE_GLOBAL)
+		sector_segment_size = true;
+	else
+		sector_segment_size = false;
+   }
+   else if(m_config->gpgpu_coalesce_arch >= 40)
+   {
+	//Maxwell, Pascal and Volta, L1 and L2 are sectors
+	//all requests should be 32 bytes
+	sector_segment_size = true;
+   }
+
    switch( data_size ) {
    case 1: segment_size = 32; break;
-   case 2: segment_size = 64; break;
-   case 4: case 8: case 16: segment_size = 128; break;
+   case 2: segment_size = sector_segment_size? 32 : 64; break;
+   case 4: case 8: case 16: segment_size = sector_segment_size? 32 : 128; break;
    }
    unsigned subwarp_size = m_config->warp_size / warp_parts;
 
@@ -485,13 +620,13 @@ void warp_inst_t::memory_coalescing_arch_13_atomic( bool is_write, mem_access_ty
            for(t=transaction_list.begin(); t!=transaction_list.end(); t++) {
                // For each transaction
                const transaction_info &info = *t;
-               memory_coalescing_arch_13_reduce_and_send(is_write, access_type, info, addr, segment_size);
+               memory_coalescing_arch_reduce_and_send(is_write, access_type, info, addr, segment_size);
            }
        }
    }
 }
 
-void warp_inst_t::memory_coalescing_arch_13_reduce_and_send( bool is_write, mem_access_type access_type, const transaction_info &info, new_addr_type addr, unsigned segment_size )
+void warp_inst_t::memory_coalescing_arch_reduce_and_send( bool is_write, mem_access_type access_type, const transaction_info &info, new_addr_type addr, unsigned segment_size )
 {
    assert( (addr & (segment_size-1)) == 0 );
 
@@ -540,7 +675,7 @@ void warp_inst_t::memory_coalescing_arch_13_reduce_and_send( bool is_write, mem_
            assert(lower_half_used && upper_half_used);
        }
    }
-   m_accessq.push_back( mem_access_t(access_type,addr,size,is_write,info.active,info.bytes) );
+   m_accessq.push_back( mem_access_t(access_type,addr,size,is_write,info.active,info.bytes, info.chunks) );
 }
 
 void warp_inst_t::completed( unsigned long long cycle ) const 
@@ -550,10 +685,16 @@ void warp_inst_t::completed( unsigned long long cycle ) const
    ptx_file_line_stats_add_latency(pc, latency * active_count());  
 }
 
+//Jin: CDP support
+bool g_cdp_enabled;
+unsigned g_kernel_launch_latency;
 
 unsigned kernel_info_t::m_next_uid = 1;
 
-kernel_info_t::kernel_info_t( dim3 gridDim, dim3 blockDim, class function_info *entry )
+/*A snapshot of the texture mappings needs to be stored in the kernel's info as 
+kernels should use the texture bindings seen at the time of launch and textures
+ can be bound/unbound asynchronously with respect to streams. */
+kernel_info_t::kernel_info_t( dim3 gridDim, dim3 blockDim, class function_info *entry, std::map<std::string, const struct cudaArray*> nameToCudaArray, std::map<std::string, const struct textureInfo*> nameToTextureInfo)   
 {
     m_kernel_entry=entry;
     m_grid_dim=gridDim;
@@ -565,17 +706,128 @@ kernel_info_t::kernel_info_t( dim3 gridDim, dim3 blockDim, class function_info *
     m_num_cores_running=0;
     m_uid = m_next_uid++;
     m_param_mem = new memory_space_impl<8192>("param",64*1024);
+
+    //Jin: parent and child kernel management for CDP
+    m_parent_kernel = NULL;
+   
+    //Jin: launch latency management
+    m_launch_latency = g_kernel_launch_latency;
+
+    volta_cache_config_set=false;
+    m_NameToCudaArray = nameToCudaArray;
+    m_NameToTextureInfo = nameToTextureInfo;
 }
 
 kernel_info_t::~kernel_info_t()
 {
     assert( m_active_threads.empty() );
+    destroy_cta_streams();
     delete m_param_mem;
 }
 
 std::string kernel_info_t::name() const
 {
     return m_kernel_entry->get_name();
+}
+
+//Jin: parent and child kernel management for CDP
+void kernel_info_t::set_parent(kernel_info_t * parent, 
+    dim3 parent_ctaid, dim3 parent_tid) {
+    m_parent_kernel = parent;
+    m_parent_ctaid = parent_ctaid;
+    m_parent_tid = parent_tid;
+    parent->set_child(this);
+}
+
+void kernel_info_t::set_child(kernel_info_t * child) {
+    m_child_kernels.push_back(child);
+}
+
+void kernel_info_t::remove_child(kernel_info_t * child) {
+    assert(std::find(m_child_kernels.begin(), m_child_kernels.end(), child)
+        != m_child_kernels.end());
+    m_child_kernels.remove(child);
+}
+
+bool kernel_info_t::is_finished() {
+  if(done() && children_all_finished())
+     return true;
+  else
+     return false;
+}
+
+bool kernel_info_t::children_all_finished() {
+   if(!m_child_kernels.empty())
+         return false;
+   
+   return true;
+}
+
+void kernel_info_t::notify_parent_finished() {
+   if(m_parent_kernel) {
+       extern unsigned long long g_total_param_size;
+       g_total_param_size -= ((m_kernel_entry->get_args_aligned_size() + 255)/256*256);
+       m_parent_kernel->remove_child(this);
+       g_stream_manager->register_finished_kernel(m_parent_kernel->get_uid());
+   }
+}
+
+CUstream_st * kernel_info_t::create_stream_cta(dim3 ctaid) {
+    assert(get_default_stream_cta(ctaid));
+    CUstream_st * stream = new CUstream_st();
+    g_stream_manager->add_stream(stream);
+    assert(m_cta_streams.find(ctaid) != m_cta_streams.end());
+    assert(m_cta_streams[ctaid].size() >= 1); //must have default stream
+    m_cta_streams[ctaid].push_back(stream);
+
+    return stream;
+}
+
+CUstream_st * kernel_info_t::get_default_stream_cta(dim3 ctaid) {
+    if(m_cta_streams.find(ctaid) != m_cta_streams.end()) {
+       assert(m_cta_streams[ctaid].size() >= 1); //already created, must have default stream
+       return *(m_cta_streams[ctaid].begin());
+    }
+    else {
+      m_cta_streams[ctaid] = std::list<CUstream_st *>();
+      CUstream_st * stream = new CUstream_st();
+      g_stream_manager->add_stream(stream);
+      m_cta_streams[ctaid].push_back(stream);
+      return stream;
+    }
+}
+
+bool kernel_info_t::cta_has_stream(dim3 ctaid, CUstream_st* stream) {
+    if(m_cta_streams.find(ctaid) == m_cta_streams.end())
+       return false;
+
+    std::list<CUstream_st *> &stream_list = m_cta_streams[ctaid];
+    if(std::find(stream_list.begin(), stream_list.end(), stream) 
+         == stream_list.end())
+       return false;
+    else
+       return true;
+}
+
+void kernel_info_t::print_parent_info() {
+    if(m_parent_kernel) {
+        printf("Parent %d: \'%s\', Block (%d, %d, %d), Thread (%d, %d, %d)\n", 
+            m_parent_kernel->get_uid(), m_parent_kernel->name().c_str(), 
+            m_parent_ctaid.x, m_parent_ctaid.y, m_parent_ctaid.z,
+            m_parent_tid.x, m_parent_tid.y, m_parent_tid.z);
+    }
+}
+
+void kernel_info_t::destroy_cta_streams() {
+     printf("Destroy streams for kernel %d: ", get_uid()); size_t stream_size = 0;
+     for(auto s = m_cta_streams.begin(); s != m_cta_streams.end(); s++) {
+        stream_size += s->second.size();
+        for(auto ss = s->second.begin(); ss != s->second.end(); ss++)
+        g_stream_manager->destroy_stream(*ss);
+        s->second.clear();
+     }
+     printf("size %lu\n", stream_size);
+     m_cta_streams.clear();
 }
 
 simt_stack::simt_stack( unsigned wid, unsigned warpSize)
@@ -599,6 +851,51 @@ void simt_stack::launch( address_type start_pc, const simt_mask_t &active_mask )
     new_stack_entry.m_active_mask = active_mask;
     new_stack_entry.m_type = STACK_ENTRY_TYPE_NORMAL;
     m_stack.push_back(new_stack_entry);
+}
+
+void simt_stack::resume( char * fname )
+{
+    reset();    
+
+
+
+      FILE * fp2 = fopen(fname, "r");
+      assert(fp2!=NULL);
+
+      char line [ 200 ]; /* or other suitable maximum line size */
+
+      while ( fgets ( line, sizeof line, fp2 ) != NULL ) /* read a line */
+      {
+          simt_stack_entry new_stack_entry;
+          char * pch;
+          pch = strtok (line," ");
+          for (unsigned j=0; j<m_warp_size; j++)
+          {
+                if (pch[0]=='1')
+                    new_stack_entry.m_active_mask.set(j);
+                else
+                    new_stack_entry.m_active_mask.reset(j);
+                pch = strtok (NULL," ");
+                
+          }  
+          
+         new_stack_entry.m_pc=atoi(pch);
+         pch = strtok (NULL," "); 
+         new_stack_entry.m_calldepth=atoi(pch);
+         pch = strtok (NULL," "); 
+         new_stack_entry.m_recvg_pc=atoi(pch);
+         pch = strtok (NULL," "); 
+         new_stack_entry.m_branch_div_cycle=atoi(pch);
+         pch = strtok (NULL," "); 
+         if(pch[0]=='0')
+            new_stack_entry.m_type= STACK_ENTRY_TYPE_NORMAL;
+         else
+            new_stack_entry.m_type= STACK_ENTRY_TYPE_CALL;
+         m_stack.push_back(new_stack_entry);
+      }
+      fclose ( fp2 );
+
+    
 }
 
 const simt_mask_t &simt_stack::get_active_mask() const
@@ -644,6 +941,20 @@ void simt_stack::print (FILE *fout) const
         }
         ptx_print_insn( stack_entry.m_pc, fout );
         fprintf(fout,"\n");
+    }
+
+}
+
+void simt_stack::print_checkpoint (FILE *fout) const
+{
+    for ( unsigned k=0; k < m_stack.size(); k++ ) {
+        simt_stack_entry stack_entry = m_stack[k];
+       
+        for (unsigned j=0; j<m_warp_size; j++)
+            fprintf(fout, "%c ", (stack_entry.m_active_mask.test(j)?'1':'0') );
+        fprintf(fout, "%d %d %d %lld %d ", stack_entry.m_pc,stack_entry.m_calldepth,stack_entry.m_recvg_pc,stack_entry.m_branch_div_cycle,stack_entry.m_type );
+        fprintf(fout, "%d %d\n",m_warp_id, m_warp_size );
+        
     }
 }
 
