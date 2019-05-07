@@ -1058,12 +1058,13 @@ public:
     const char* get_name() {
     	return m_name.c_str();
     }
+	// for extra logging 
+    static const unsigned MAX_ALU_LATENCY = 512;
+    std::bitset<MAX_ALU_LATENCY> occupied;
 protected:
     std::string m_name;
     const shader_core_config *m_config;
     warp_inst_t *m_dispatch_reg;
-    static const unsigned MAX_ALU_LATENCY = 512;
-    std::bitset<MAX_ALU_LATENCY> occupied;
 };
 
 class pipelined_simd_unit : public simd_function_unit {
@@ -1569,6 +1570,8 @@ struct shader_core_stats_pod {
     unsigned *m_active_fu_lanes;
     unsigned *m_active_fu_mem_lanes;
     unsigned *m_n_diverge;    // number of divergence occurring in this shader
+    unsigned *m_num_no_issue;
+    unsigned *m_num_no_active_fu;
     unsigned gpgpu_n_load_insn;
     unsigned gpgpu_n_store_insn;
     unsigned gpgpu_n_shmem_insn;
@@ -1642,6 +1645,8 @@ public:
         m_num_tensor_core_acesses= (unsigned*) calloc(config->num_shader(),sizeof(unsigned));
         m_num_trans_acesses= (unsigned*) calloc(config->num_shader(),sizeof(unsigned));
         m_num_mem_acesses= (unsigned*) calloc(config->num_shader(),sizeof(unsigned));
+        m_num_no_issue= (unsigned*) calloc(config->num_shader(),sizeof(unsigned));
+        m_num_no_active_fu= (unsigned*) calloc(config->num_shader(),sizeof(unsigned));
         m_num_sp_committed= (unsigned*) calloc(config->num_shader(),sizeof(unsigned));
         m_num_tlb_hits=(unsigned*) calloc(config->num_shader(),sizeof(unsigned));
         m_num_tlb_accesses=(unsigned*) calloc(config->num_shader(),sizeof(unsigned));

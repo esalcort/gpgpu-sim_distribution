@@ -597,6 +597,11 @@ void shader_core_stats::print( FILE* fout ) const
 
    fprintf(fout, "gpu_reg_bank_conflict_stalls = %d\n", gpu_reg_bank_conflict_stalls);
 
+for (unsigned i = 0; i < m_config->num_shader(); i++){
+	fprintf(fout, "no_issue[%d]: %d\n", i, m_num_no_issue[i]);
+	fprintf(fout, "no_active_fu[%d]: %d\n", i, m_num_no_active_fu[i]);
+}
+
    fprintf(fout, "Warp Occupancy Distribution:\n");
    fprintf(fout, "Stall:%d\t", shader_cycle_distro[2]);
    fprintf(fout, "W0_Idle:%d\t", shader_cycle_distro[0]);
@@ -1185,12 +1190,18 @@ void scheduler_unit::cycle()
     }
 
     // issue stall statistics:
-    if( !valid_inst ) 
+    if( !valid_inst ) {
+	//std::cout << "<" << gpu_sim_cycle << ">" << m_shader->get_sid() << " had no valid inst" << std::endl;
         m_stats->shader_cycle_distro[0]++; // idle or control hazard
-    else if( !ready_inst ) 
+    }
+    else if( !ready_inst ) {
+	//std::cout << "<" << gpu_sim_cycle << ">" << m_shader->get_sid() << " had no ready inst" << std::endl;
         m_stats->shader_cycle_distro[1]++; // waiting for RAW hazards (possibly due to memory) 
-    else if( !issued_inst ) 
+    }
+    else if( !issued_inst ) {
+	//std::cout << "<" << gpu_sim_cycle << ">" << m_shader->get_sid() << " did not issue a inst" << std::endl;
         m_stats->shader_cycle_distro[2]++; // pipeline stalled
+    }
 }
 
 void scheduler_unit::do_on_warp_issued( unsigned warp_id,
@@ -1435,9 +1446,11 @@ int shader_core_ctx::test_res_bus(int latency){
 
 void shader_core_ctx::execute()
 {
-	for(unsigned i=0; i<num_result_bus; i++){
-		*(m_result_bus[i]) >>=1;
-	}
+for(unsigned i=0; i<num_result_bus; i++){
+	*(m_result_bus[i]) >>=1;
+}
+bool no_issue = true;
+bool no_fu_occupied = true;
     for( unsigned n=0; n < m_num_function_units; n++ ) {
         unsigned multiplier = m_fu[n]->clock_multiplier();
         for( unsigned c=0; c < multiplier; c++ ) 
@@ -1446,6 +1459,7 @@ void shader_core_ctx::execute()
         enum pipeline_stage_name_t issue_port = m_issue_port[n];
         register_set& issue_inst = m_pipeline_reg[ issue_port ];
         warp_inst_t** ready_reg = issue_inst.get_ready();
+	no_fu_occupied &= !(m_fu[n]->occupied.any());
         if( issue_inst.has_ready() && m_fu[n]->can_issue( **ready_reg ) ) {
             bool schedule_wb_now = !m_fu[n]->stallable();
             int resbus = -1;
@@ -1456,10 +1470,21 @@ void shader_core_ctx::execute()
             } else if( !schedule_wb_now ) {
                 m_fu[n]->issue( issue_inst );
             } else {
-                std::cout << this->get_sid() << " stalled" << std::endl;
                 // stall issue (cannot reserve result bus)
+		no_issue &= true;
             }
-        }
+		no_issue &= false;
+        } else{
+		no_issue &= true;
+	}
+    }
+    if(no_issue){
+	m_stats->m_num_no_issue[this->get_sid()]++;
+	//std::cout << "<" << gpu_sim_cycle << ">" << this->get_sid() << " issued no instructions" << std::endl;
+    }
+    if(no_fu_occupied){
+	m_stats->m_num_no_active_fu[this->get_sid()]++;
+	//std::cout << "<" << gpu_sim_cycle << ">" << this->get_sid() << " has no occupied fu's" << std::endl;
     }
 }
 
