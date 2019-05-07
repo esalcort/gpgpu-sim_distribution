@@ -958,19 +958,25 @@ void gpgpu_sim::print_heartbeat_stats()
 {
 	FILE *pfile;
 	static char first_line = 1;
-	static enum mem_access_type acc_list[] = {GLOBAL_ACC_R, LOCAL_ACC_R, CONST_ACC_R, TEXTURE_ACC_R, GLOBAL_ACC_W, LOCAL_ACC_W, L1_WRBK_ACC, L2_WRBK_ACC, INST_ACC_R, L1_WR_ALLOC_R, L2_WR_ALLOC_R};
+	//static enum mem_access_type acc_list[] = {GLOBAL_ACC_R, LOCAL_ACC_R, CONST_ACC_R, TEXTURE_ACC_R, GLOBAL_ACC_W, LOCAL_ACC_W, L1_WRBK_ACC, L2_WRBK_ACC, INST_ACC_R, L1_WR_ALLOC_R, L2_WR_ALLOC_R};
+	static enum mem_access_type l1d_acc_list[] = {GLOBAL_ACC_R, LOCAL_ACC_R, GLOBAL_ACC_W, LOCAL_ACC_W};
+	static enum mem_access_type l1i_acc_list[] = {INST_ACC_R};
+	static enum mem_access_type l1c_acc_list[] = {CONST_ACC_R};
+	static enum mem_access_type l1t_acc_list[] = {TEXTURE_ACC_R};
 	static enum cache_request_status req_list[] = {RESERVATION_FAIL};
-	static unsigned long long last_gpu_sim_cycle = 0;
-	static unsigned long long last_gpu_sim_insn = 0;
-	static unsigned int last_gpu_stall_dramfull = 0;
-	static unsigned int last_gpu_stall_icnt2sh = 0;
-	static unsigned last_stalls = 0;
+	//static unsigned long long last_gpu_sim_cycle = 0;
+	//static unsigned long long last_gpu_sim_insn = 0;
+	//static unsigned int last_gpu_stall_dramfull = 0;
+	//static unsigned int last_gpu_stall_icnt2sh = 0;
+	//static unsigned last_stalls = 0;
 	unsigned long long cycles = gpu_sim_cycle + gpu_tot_sim_cycle;
 	unsigned long long insn = gpu_sim_insn + gpu_tot_sim_insn;
-	unsigned stalls = m_shader_stats->shader_cycle_distro[2];
+	unsigned distro_0 = m_shader_stats->shader_cycle_distro[0];
+	unsigned distro_1 = m_shader_stats->shader_cycle_distro[1];
+	unsigned distro_2 = m_shader_stats->shader_cycle_distro[2];
 	if (first_line) {
 		pfile = fopen("heartbeat_stats.txt","w");
-		fprintf(pfile, "cycles, instructions, stall_dramfull, stall_icnt2sh, reservation_fail, Stalls\n");//miss_queue_full, mshr_entry_fail, mshr_merge_entry fail\n");
+		fprintf(pfile, "cycles, instructions, stall_dramfull, stall_icnt2sh, l1d_res_fail, l1i_res_fail, l1c_res_fail, l1t_res_fail, distro0, distro1, distro2\n");//miss_queue_full, mshr_entry_fail, mshr_merge_entry fail\n");
 		first_line = 0;
 	}
 	else {
@@ -981,14 +987,20 @@ void gpgpu_sim::print_heartbeat_stats()
    for(unsigned i=0; i<m_config.num_cluster(); i++){
        m_cluster[i]->get_cache_stats(core_cache_stats);
    }
-	fprintf(pfile, "%lld, %lld, %d, %d, %d, %d\n",  cycles, insn , gpu_stall_dramfull, gpu_stall_icnt2sh, core_cache_stats.get_stats(acc_list, NUM_MEM_ACCESS_TYPE, req_list, 1), stalls );
+	fprintf(pfile, "%lld, %lld, %d, %d, %d, %d, %d, %d, %d, %d, %d\n",
+			cycles, insn , gpu_stall_dramfull, gpu_stall_icnt2sh,
+			core_cache_stats.get_stats(l1d_acc_list, 4, req_list, 1),
+			core_cache_stats.get_stats(l1i_acc_list, 1, req_list, 1),
+			core_cache_stats.get_stats(l1c_acc_list, 1, req_list, 1),
+			core_cache_stats.get_stats(l1t_acc_list, 1, req_list, 1),
+			distro_0, distro_1, distro_2 );
 	fflush(pfile);
 	fclose(pfile);
-	last_gpu_sim_cycle = cycles;
-	last_gpu_sim_insn = insn;
-	last_gpu_stall_dramfull = gpu_stall_dramfull;
-	last_gpu_stall_icnt2sh = gpu_stall_icnt2sh;
-	last_stalls = stalls;
+	//last_gpu_sim_cycle = cycles;
+	//last_gpu_sim_insn = insn;
+	//last_gpu_stall_dramfull = gpu_stall_dramfull;
+	//last_gpu_stall_icnt2sh = gpu_stall_icnt2sh;
+	//last_stalls = stalls;
 }
 
 void gpgpu_sim::deadlock_check()
