@@ -1449,8 +1449,8 @@ void shader_core_ctx::execute()
 for(unsigned i=0; i<num_result_bus; i++){
 	*(m_result_bus[i]) >>=1;
 }
-bool no_issue = true;
-bool no_fu_occupied = true;
+    bool no_issue = true;
+    bool no_fu_occupied = true;
     for( unsigned n=0; n < m_num_function_units; n++ ) {
         unsigned multiplier = m_fu[n]->clock_multiplier();
         for( unsigned c=0; c < multiplier; c++ ) 
@@ -1459,7 +1459,7 @@ bool no_fu_occupied = true;
         enum pipeline_stage_name_t issue_port = m_issue_port[n];
         register_set& issue_inst = m_pipeline_reg[ issue_port ];
         warp_inst_t** ready_reg = issue_inst.get_ready();
-	no_fu_occupied &= !(m_fu[n]->occupied.any());
+    	no_fu_occupied &= !(m_fu[n]->occupied.any());
         if( issue_inst.has_ready() && m_fu[n]->can_issue( **ready_reg ) ) {
             bool schedule_wb_now = !m_fu[n]->stallable();
             int resbus = -1;
@@ -1471,20 +1471,20 @@ bool no_fu_occupied = true;
                 m_fu[n]->issue( issue_inst );
             } else {
                 // stall issue (cannot reserve result bus)
-		no_issue &= true;
+		        no_issue &= true;
             }
-		no_issue &= false;
+		    no_issue &= false;
         } else{
-		no_issue &= true;
-	}
+		    no_issue &= true;
+	    }
     }
     if(no_issue){
-	m_stats->m_num_no_issue[this->get_sid()]++;
-	//std::cout << "<" << gpu_sim_cycle << ">" << this->get_sid() << " issued no instructions" << std::endl;
+	    m_stats->m_num_no_issue[this->get_sid()]++;
+	    //std::cout << "<" << gpu_sim_cycle << ">" << this->get_sid() << " issued no instructions" << std::endl;
     }
     if(no_fu_occupied){
-	m_stats->m_num_no_active_fu[this->get_sid()]++;
-	//std::cout << "<" << gpu_sim_cycle << ">" << this->get_sid() << " has no occupied fu's" << std::endl;
+	    m_stats->m_num_no_active_fu[this->get_sid()]++;
+	    //std::cout << "<" << gpu_sim_cycle << ">" << this->get_sid() << " has no occupied fu's" << std::endl;
     }
 }
 

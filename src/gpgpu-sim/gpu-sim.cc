@@ -983,7 +983,7 @@ void gpgpu_sim::print_heartbeat_stats()
 		fprintf(pfile, "l1i_res_fail, l1c_res_fail, l1t_res_fail, distro0, distro1, distro2");//miss_queue_full, mshr_entry_fail, mshr_merge_entry fail\n");
 		//Print out core stall
 		for (int c = 0; c < num_cores; c++){   
-            fprintf(pfile, ", core no_i[%d], core no_afu[%d]",c);
+            fprintf(pfile, ", core no_i[%d], core no_afu[%d]",c,c);
         }
         fprintf(pfile, "\n");
 		first_line = 0;
