@@ -974,9 +974,18 @@ void gpgpu_sim::print_heartbeat_stats()
 	unsigned distro_0 = m_shader_stats->shader_cycle_distro[0];
 	unsigned distro_1 = m_shader_stats->shader_cycle_distro[1];
 	unsigned distro_2 = m_shader_stats->shader_cycle_distro[2];
+	unsigned *core_no_issue = m_shader_stats->m_num_no_issue;
+	unsigned *core_no_act_fu = m_shader_stats->m_num_no_active_fu;
+	unsigned num_cores = m_shader_config->num_shader();
 	if (first_line) {
 		pfile = fopen("heartbeat_stats.txt","w");
-		fprintf(pfile, "cycles, instructions, stall_dramfull, stall_icnt2sh, l1d_res_fail, l1i_res_fail, l1c_res_fail, l1t_res_fail, distro0, distro1, distro2\n");//miss_queue_full, mshr_entry_fail, mshr_merge_entry fail\n");
+		fprintf(pfile, "cycles, instructions, stall_dramfull, stall_icnt2sh, l1d_res_fail, ");
+		fprintf(pfile, "l1i_res_fail, l1c_res_fail, l1t_res_fail, distro0, distro1, distro2");//miss_queue_full, mshr_entry_fail, mshr_merge_entry fail\n");
+		//Print out core stall
+		for (int c = 0; c < num_cores; c++){   
+            fprintf(pfile, ", core no_i[%d], core no_afu[%d]",c);
+        }
+        fprintf(pfile, "\n");
 		first_line = 0;
 	}
 	else {
@@ -987,13 +996,17 @@ void gpgpu_sim::print_heartbeat_stats()
    for(unsigned i=0; i<m_config.num_cluster(); i++){
        m_cluster[i]->get_cache_stats(core_cache_stats);
    }
-	fprintf(pfile, "%lld, %lld, %d, %d, %d, %d, %d, %d, %d, %d, %d\n",
+	fprintf(pfile, "%lld, %lld, %d, %d, %d, %d, %d, %d, %d, %d, %d",
 			cycles, insn , gpu_stall_dramfull, gpu_stall_icnt2sh,
 			core_cache_stats.get_stats(l1d_acc_list, 4, req_list, 1),
 			core_cache_stats.get_stats(l1i_acc_list, 1, req_list, 1),
 			core_cache_stats.get_stats(l1c_acc_list, 1, req_list, 1),
 			core_cache_stats.get_stats(l1t_acc_list, 1, req_list, 1),
 			distro_0, distro_1, distro_2 );
+    for (int c = 0; c < num_cores; c++){
+        fprintf(pfile, ", %d, %d",core_no_issue[c], core_no_act_fu[c]);
+    }
+    fprintf(pfile, "\n");
 	fflush(pfile);
 	fclose(pfile);
 	//last_gpu_sim_cycle = cycles;
