@@ -961,14 +961,11 @@ void gpgpu_sim::print_heartbeat_stats()
 	//static enum mem_access_type acc_list[] = {GLOBAL_ACC_R, LOCAL_ACC_R, CONST_ACC_R, TEXTURE_ACC_R, GLOBAL_ACC_W, LOCAL_ACC_W, L1_WRBK_ACC, L2_WRBK_ACC, INST_ACC_R, L1_WR_ALLOC_R, L2_WR_ALLOC_R};
 	static enum mem_access_type l1d_acc_list[] = {GLOBAL_ACC_R, LOCAL_ACC_R, GLOBAL_ACC_W, LOCAL_ACC_W};
 	static enum mem_access_type l1i_acc_list[] = {INST_ACC_R};
-	static enum mem_access_type l1c_acc_list[] = {CONST_ACC_R};
-	static enum mem_access_type l1t_acc_list[] = {TEXTURE_ACC_R};
-	static enum cache_request_status req_list[] = {RESERVATION_FAIL};
-	//static unsigned long long last_gpu_sim_cycle = 0;
-	//static unsigned long long last_gpu_sim_insn = 0;
-	//static unsigned int last_gpu_stall_dramfull = 0;
-	//static unsigned int last_gpu_stall_icnt2sh = 0;
-	//static unsigned last_stalls = 0;
+	//static enum mem_access_type l1c_acc_list[] = {CONST_ACC_R};
+	//static enum mem_access_type l1t_acc_list[] = {TEXTURE_ACC_R};
+	static enum cache_request_status fail_req_list[] = {RESERVATION_FAIL};
+	static enum cache_request_status miss_req_list[] = {MISS};
+	static enum cache_request_status acc_req_list[] = {HIT, MISS, HIT_RESERVED};
 	unsigned long long cycles = gpu_sim_cycle + gpu_tot_sim_cycle;
 	unsigned long long insn = gpu_sim_insn + gpu_tot_sim_insn;
 	unsigned distro_0 = m_shader_stats->shader_cycle_distro[0];
@@ -979,41 +976,63 @@ void gpgpu_sim::print_heartbeat_stats()
 	unsigned num_cores = m_shader_config->num_shader();
 	if (first_line) {
 		pfile = fopen("heartbeat_stats.txt","w");
-		fprintf(pfile, "cycles, instructions, stall_dramfull, stall_icnt2sh, l1d_res_fail, ");
-		fprintf(pfile, "l1i_res_fail, l1c_res_fail, l1t_res_fail, distro0, distro1, distro2");//miss_queue_full, mshr_entry_fail, mshr_merge_entry fail\n");
+		// Global stats
+		fprintf(pfile, "cycles, instructions, stall_dramfull, stall_icnt2sh, ");
+		// Global L1I stats
+		fprintf(pfile, "l1i_res_fail, l1i_miss, l1i_access, ");
+		// Global L1D stats
+		fprintf(pfile, "l1d_res_fail, l1d_miss, l1d_access, ");
+		// Global stalls report
+		fprintf(pfile, "distro0, distro1, distro2");
+		//TODO: miss_queue_full, mshr_entry_fail, mshr_merge_entry fail\n");
 		//Print out core stall
 		for (int c = 0; c < num_cores; c++){   
-            fprintf(pfile, ", core no_i[%d], core no_afu[%d]",c,c);
-        }
-        fprintf(pfile, "\n");
+	        	fprintf(pfile, ", core no_i[%d], core no_afu[%d]",c,c);
+		}
+		for(unsigned i=0; i<m_config.num_cluster(); i++){
+			// Per-core L1 reports
+			fprintf(pfile, ", l1d_res_fail[%d], l1d_miss[%d], l1d_access[%d]", i, i, i);
+			fprintf(pfile, ", l1i_res_fail[%d], l1i_miss[%d], l1i_access[%d]", i, i, i);
+        	}
+	        fprintf(pfile, "\n");
 		first_line = 0;
-	}
+	}	
 	else {
 		pfile = fopen("heartbeat_stats.txt","a");
 	}
-	cache_stats core_cache_stats;
-   core_cache_stats.clear();
-   for(unsigned i=0; i<m_config.num_cluster(); i++){
-       m_cluster[i]->get_cache_stats(core_cache_stats);
-   }
-	fprintf(pfile, "%lld, %lld, %d, %d, %d, %d, %d, %d, %d, %d, %d",
+	cache_stats all_cache_stats;
+	cache_stats *core_cache_stats = new cache_stats[m_config.num_cluster()];
+	all_cache_stats.clear();
+	for(unsigned i=0; i<m_config.num_cluster(); i++){
+		m_cluster[i]->get_cache_stats(all_cache_stats);
+		core_cache_stats[i].clear();
+		m_cluster[i]->get_cache_stats(core_cache_stats[i]);
+	}
+	fprintf(pfile, "%lld, %lld, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d",
 			cycles, insn , gpu_stall_dramfull, gpu_stall_icnt2sh,
-			core_cache_stats.get_stats(l1d_acc_list, 4, req_list, 1),
-			core_cache_stats.get_stats(l1i_acc_list, 1, req_list, 1),
-			core_cache_stats.get_stats(l1c_acc_list, 1, req_list, 1),
-			core_cache_stats.get_stats(l1t_acc_list, 1, req_list, 1),
+			all_cache_stats.get_stats(l1i_acc_list, 1, fail_req_list, 1),
+			all_cache_stats.get_stats(l1i_acc_list, 1, miss_req_list, 1),
+			all_cache_stats.get_stats(l1i_acc_list, 1, acc_req_list, 3),
+			all_cache_stats.get_stats(l1d_acc_list, 4, fail_req_list, 1),
+			all_cache_stats.get_stats(l1d_acc_list, 4, miss_req_list, 1),
+			all_cache_stats.get_stats(l1d_acc_list, 4, acc_req_list, 3),
 			distro_0, distro_1, distro_2 );
-    for (int c = 0; c < num_cores; c++){
-        fprintf(pfile, ", %d, %d",core_no_issue[c], core_no_act_fu[c]);
-    }
-    fprintf(pfile, "\n");
+	for (int c = 0; c < num_cores; c++){
+		fprintf(pfile, ", %d, %d",core_no_issue[c], core_no_act_fu[c]);
+	}
+	for(unsigned i=0; i<m_config.num_cluster(); i++){
+			fprintf(pfile, ", %d, %d, %d, %d, %d, %d",
+				core_cache_stats[i].get_stats(l1i_acc_list, 1, fail_req_list, 1),
+				core_cache_stats[i].get_stats(l1i_acc_list, 1, miss_req_list, 1),
+				core_cache_stats[i].get_stats(l1i_acc_list, 1, acc_req_list, 3),
+				core_cache_stats[i].get_stats(l1d_acc_list, 4, fail_req_list, 1),
+				core_cache_stats[i].get_stats(l1d_acc_list, 4, miss_req_list, 1),
+				core_cache_stats[i].get_stats(l1d_acc_list, 4, acc_req_list, 3)   );
+	}
+	fprintf(pfile, "\n");
 	fflush(pfile);
 	fclose(pfile);
-	//last_gpu_sim_cycle = cycles;
-	//last_gpu_sim_insn = insn;
-	//last_gpu_stall_dramfull = gpu_stall_dramfull;
-	//last_gpu_stall_icnt2sh = gpu_stall_icnt2sh;
-	//last_stalls = stalls;
+	delete [] core_cache_stats;
 }
 
 void gpgpu_sim::deadlock_check()
