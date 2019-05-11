@@ -2121,6 +2121,7 @@ public:
 
     void get_icnt_stats(long &n_simt_to_mem, long &n_mem_to_simt) const;
     float get_current_occupancy( unsigned long long& active, unsigned long long & total ) const;
+    shader_core_ctx ** get_cores() {return m_core;}
 
 private:
     unsigned m_cluster_id;
