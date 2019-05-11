@@ -1572,6 +1572,8 @@ struct shader_core_stats_pod {
     unsigned *m_n_diverge;    // number of divergence occurring in this shader
     unsigned *m_num_no_issue;
     unsigned *m_num_no_active_fu;
+    unsigned *m_pcore_single_issue;
+    unsigned *m_pcore_dual_issue;
     unsigned gpgpu_n_load_insn;
     unsigned gpgpu_n_store_insn;
     unsigned gpgpu_n_shmem_insn;
@@ -1589,8 +1591,8 @@ struct shader_core_stats_pod {
     unsigned *last_shader_cycle_distro;
     unsigned *num_warps_issuable;
     unsigned gpgpu_n_stall_shd_mem;
-    unsigned* single_issue_nums;
-    unsigned* dual_issue_nums;
+    unsigned *single_issue_nums;
+    unsigned *dual_issue_nums;
 
     //memory access classification
     int gpgpu_n_mem_read_local;
@@ -1614,7 +1616,7 @@ struct shader_core_stats_pod {
 };
 
 class shader_core_stats : public shader_core_stats_pod {
-public:
+    public:
     shader_core_stats( const shader_core_config *config )
     {
         m_config = config;
@@ -1666,6 +1668,9 @@ public:
         last_shader_cycle_distro = (unsigned*) calloc(m_config->warp_size+3, sizeof(unsigned));
         single_issue_nums = (unsigned*) calloc(config->gpgpu_num_sched_per_core,sizeof(unsigned));
         dual_issue_nums = (unsigned*) calloc(config->gpgpu_num_sched_per_core, sizeof(unsigned));
+
+        m_pcore_single_issue = (unsigned*) calloc(config->num_shader(),sizeof(unsigned));
+        m_pcore_dual_issue = (unsigned*) calloc(config->num_shader(),sizeof(unsigned));
 
         n_simt_to_mem = (long *)calloc(config->num_shader(), sizeof(long));
         n_mem_to_simt = (long *)calloc(config->num_shader(), sizeof(long));

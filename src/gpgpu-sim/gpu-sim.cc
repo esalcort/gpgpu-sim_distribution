@@ -973,6 +973,8 @@ void gpgpu_sim::print_heartbeat_stats()
 	unsigned distro_2 = m_shader_stats->shader_cycle_distro[2];
 	unsigned *core_no_issue = m_shader_stats->m_num_no_issue;
 	unsigned *core_no_act_fu = m_shader_stats->m_num_no_active_fu;
+	unsigned *core_si = m_shader_stats->m_pcore_single_issue;
+	unsigned *core_di = m_shader_stats->m_pcore_dual_issue;
 	unsigned num_cores = m_shader_config->num_shader();
 	if (first_line) {
 		pfile = fopen("heartbeat_stats.txt","w");
@@ -988,6 +990,7 @@ void gpgpu_sim::print_heartbeat_stats()
 		//Print out core stall
 		for (int c = 0; c < num_cores; c++){   
 	        	fprintf(pfile, ", core no_i[%d], core no_afu[%d]",c,c);
+	        	fprintf(pfile, ", core_si[%d], core_di[%d]",c,c);
 		}
 		for(unsigned i=0; i<m_config.num_cluster(); i++){
 			// Per-core L1 reports
@@ -1019,6 +1022,7 @@ void gpgpu_sim::print_heartbeat_stats()
 			distro_0, distro_1, distro_2 );
 	for (int c = 0; c < num_cores; c++){
 		fprintf(pfile, ", %d, %d",core_no_issue[c], core_no_act_fu[c]);
+		fprintf(pfile, ", %d, %d",core_si[c], core_di[c]);
 	}
 	for(unsigned i=0; i<m_config.num_cluster(); i++){
 			fprintf(pfile, ", %d, %d, %d, %d, %d, %d",

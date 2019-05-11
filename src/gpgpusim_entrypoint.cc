@@ -159,7 +159,7 @@ void *gpgpu_sim_thread_concurrent(void*)
             }
 
             active=g_the_gpu->active() || !g_stream_manager->empty_protected();
-	    if (((gpu_sim_cycle + gpu_tot_sim_cycle) - last_gpu_sim_cycle) >= 2000) { //Susy
+	    if (((gpu_sim_cycle + gpu_tot_sim_cycle) - last_gpu_sim_cycle) >= 500) { //Susy
             	g_the_gpu->print_heartbeat_stats();
 //            	g_the_gpu->update_heartbeat_stats();
 //            	print_simulation_time();

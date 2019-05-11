@@ -1178,12 +1178,17 @@ void scheduler_unit::cycle()
                 }
             }
 
-            if(issued == 1)
+            if(issued == 1) {
+                m_stats->m_pcore_single_issue[m_shader->get_sid()]++;
             	m_stats->single_issue_nums[m_id]++;
-            else if(issued > 1)
+            }
+            else if(issued > 1) {
+                m_stats->m_pcore_dual_issue[m_shader->get_sid()]++;
             	m_stats->dual_issue_nums[m_id]++;
-            else
+            }
+            else {
             	abort();   //issued should be > 0
+            }
 
             break;
         } 
@@ -1191,15 +1196,12 @@ void scheduler_unit::cycle()
 
     // issue stall statistics:
     if( !valid_inst ) {
-	//std::cout << "<" << gpu_sim_cycle << ">" << m_shader->get_sid() << " had no valid inst" << std::endl;
         m_stats->shader_cycle_distro[0]++; // idle or control hazard
     }
     else if( !ready_inst ) {
-	//std::cout << "<" << gpu_sim_cycle << ">" << m_shader->get_sid() << " had no ready inst" << std::endl;
         m_stats->shader_cycle_distro[1]++; // waiting for RAW hazards (possibly due to memory) 
     }
     else if( !issued_inst ) {
-	//std::cout << "<" << gpu_sim_cycle << ">" << m_shader->get_sid() << " did not issue a inst" << std::endl;
         m_stats->shader_cycle_distro[2]++; // pipeline stalled
     }
 }
