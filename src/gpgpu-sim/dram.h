@@ -110,7 +110,7 @@ class dram_t
 {
 public:
    dram_t( unsigned int parition_id, const struct memory_config *config, class memory_stats_t *stats, 
-           class memory_partition_unit *mp );
+           class memory_partition_unit *mp, class gpgpu_sim *gpu );
 
    bool full(bool is_write) const;
    void print( FILE* simFile ) const;
@@ -245,7 +245,8 @@ private:
 
    class memory_stats_t *m_stats;
    class Stats* mrqq_Dist; //memory request queue inside DRAM  
-
+   
+   class gpgpu_sim* m_gpu;
    friend class frfcfs_scheduler;
 };
 

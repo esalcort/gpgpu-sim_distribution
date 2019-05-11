@@ -67,6 +67,10 @@ frfcfs_scheduler::frfcfs_scheduler( const memory_config *config, dram_t *dm, mem
 
 void frfcfs_scheduler::add_req( dram_req_t *req )
 {
+	//TODO: Use as sample to access cluster, core, and other gpgpu_sim members. Then REMOVE
+	//unsigned cluster = req->data->get_sid() / m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
+	//unsigned core = req->data->get_sid() % m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
+	//printf("DRAM access sid: %d, (cluster, core): (%d, %d)\n", req->data->get_sid(), cluster, core);
   if(m_config->seperate_write_queue_enabled && req->data->is_write()) {
 	  assert(m_num_write_pending < m_config->gpgpu_frfcfs_dram_write_queue_size);
 	  m_num_write_pending++;

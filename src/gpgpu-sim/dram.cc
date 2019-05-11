@@ -42,7 +42,7 @@ template class fifo_pipeline<mem_fetch>;
 template class fifo_pipeline<dram_req_t>;
 
 dram_t::dram_t( unsigned int partition_id, const struct memory_config *config, memory_stats_t *stats,
-                memory_partition_unit *mp )
+                memory_partition_unit *mp, class gpgpu_sim *gpu )
 {
    id = partition_id;
    m_memory_partition_unit = mp;
@@ -151,6 +151,7 @@ dram_t::dram_t( unsigned int partition_id, const struct memory_config *config, m
    else //queue length is unlimited; 
       mrqq_Dist = StatCreate("mrqq_length",1,64); //track up to 64 entries
 
+   m_gpu = gpu;
 }
 
 bool dram_t::full(bool is_write) const

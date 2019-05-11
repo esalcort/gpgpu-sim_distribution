@@ -595,6 +595,8 @@ public:
      m_functional_sim = false;
      m_functional_sim_kernel = NULL;
    }
+friend class dram_t;
+friend class frfcfs_scheduler;
 };
 
 
