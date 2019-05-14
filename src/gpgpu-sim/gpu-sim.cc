@@ -974,6 +974,7 @@ void gpgpu_sim::print_heartbeat_stats()
 	unsigned *core_si = m_shader_stats->m_pcore_single_issue;
 	unsigned *core_di = m_shader_stats->m_pcore_dual_issue;
 	unsigned num_cores = m_shader_config->num_shader();
+        unsigned int bwutil=0, n_cmd=0, n_activity=0; // DRAM stats
 	if (first_line) {
 		pfile = fopen("heartbeat_stats.txt","w");
 		// Global stats
@@ -987,12 +988,13 @@ void gpgpu_sim::print_heartbeat_stats()
 		//TODO: miss_queue_full, mshr_entry_fail, mshr_merge_entry fail\n");
 		//Print out core stall
 		for (int c = 0; c < num_cores; c++){   
-	        	fprintf(pfile, ", core_si[%d], core_di[%d]",c,c);
+	        fprintf(pfile, ", core_si[%d], core_di[%d]",c,c);
 			// Per-core L1 reports
 			fprintf(pfile, ", l1i_res_fail[%d], l1i_miss[%d], l1i_access[%d]", c, c, c);
 			fprintf(pfile, ", l1d_res_fail[%d], l1d_miss[%d], l1d_access[%d]", c, c, c);
-        	}
-	        fprintf(pfile, "\n");
+    }
+    fprintf(pfile, ", DRAM_bw_util, DRAM_eff");
+    fprintf(pfile, "\n");
 		first_line = 0;
 	}	
 	else {
@@ -1028,6 +1030,12 @@ void gpgpu_sim::print_heartbeat_stats()
 				core_cache_stats[c].get_stats(l1d_acc_list, 4, miss_req_list, 1),
 				core_cache_stats[c].get_stats(l1d_acc_list, 4, acc_req_list, 3)   );
 	}
+  for (unsigned i=0;i<m_memory_config->m_n_mem;i++) {
+      bwutil += m_memory_partition_unit[i]->get_dram()->get_bwutil();
+      n_cmd += m_memory_partition_unit[i]->get_dram()->get_n_cmd();
+      n_activity += m_memory_partition_unit[i]->get_dram()->get_n_activity();
+  }
+  fprintf(pfile, ", %f, %f", (float)bwutil/n_cmd, (float)bwutil/n_activity);
 	fprintf(pfile, "\n");
 	fflush(pfile);
 	fclose(pfile);

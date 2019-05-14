@@ -43,14 +43,14 @@ enum memory_mode {
 class frfcfs_scheduler {
 public:
    frfcfs_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats );
-   void add_req( dram_req_t *req );
-   void data_collection(unsigned bank);
-   dram_req_t *schedule( unsigned bank, unsigned curr_row );
-   void print( FILE *fp );
-   unsigned num_pending() const { return m_num_pending;}
-   unsigned num_write_pending() const { return m_num_write_pending;}
+   virtual void add_req( dram_req_t *req );
+   virtual void data_collection(unsigned bank);
+   virtual dram_req_t *schedule( unsigned bank, unsigned curr_row );
+   virtual void print( FILE *fp );
+   virtual unsigned num_pending() const { return m_num_pending;}
+   virtual unsigned num_write_pending() const { return m_num_write_pending;}
 
-private:
+protected:
    const memory_config *m_config;
    dram_t *m_dram;
    unsigned m_num_pending;
@@ -68,5 +68,11 @@ private:
    enum memory_mode m_mode;
    memory_stats_t *m_stats;
 };
+
+class frmp_scheduler : public frfcfs_scheduler {
+public:
+   frmp_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats );
+   virtual void add_req( dram_req_t *req );
+}
 
 #endif

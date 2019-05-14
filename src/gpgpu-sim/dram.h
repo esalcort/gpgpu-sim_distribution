@@ -145,6 +145,10 @@ public:
 
    const struct memory_config *m_config;
 
+   unsigned int get_bwutil() {return bwutil;}
+   unsigned int get_n_cmd() {return n_cmd;}
+   unsigned int get_n_activity() {return n_activity;}
+
 private:
    bankgrp_t **bkgrp;
 

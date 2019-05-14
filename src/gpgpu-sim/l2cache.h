@@ -93,6 +93,8 @@ public:
 
    unsigned get_mpid() const { return m_id; }
 
+   class dram_t* get_dram() {return m_dram;}
+
 private: 
 
    unsigned m_id;
