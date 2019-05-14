@@ -115,7 +115,7 @@ dram_t::dram_t( unsigned int partition_id, const struct memory_config *config, m
    returnq = new fifo_pipeline<mem_fetch>("dramreturnq",0,m_config->gpgpu_dram_return_queue_size==0?1024:m_config->gpgpu_dram_return_queue_size); 
    m_frfcfs_scheduler = NULL;
    if ( m_config->scheduler_type == DRAM_FRFCFS)
-      m_frfcfs_scheduler = new frfcfs_scheduler(m_config,this,stats);
+      m_frfcfs_scheduler = new frmp_scheduler(m_config,this,stats);
    n_cmd = 0;
    n_activity = 0;
    n_nop = 0; 

@@ -1756,16 +1756,19 @@ void ldst_unit::L1_latency_queue_cycle()
 			   if( !write_sent )
 				   delete mf_next;
 
+
+
 		   } else if ( status == RESERVATION_FAIL ) {
 			   //printf("Reservation fail!\n");
 			   if(mf_next)
 			   {
-					if(mf_next->p_inst->is_orig_mem_req())
-					{
-						m_core->mshr_pressure++;
-						//printf("Incr pressure!\n");
-						mf_next->p_inst->set_rep_mem_req();
-					}
+					//if(mf_next->p_inst->is_orig_mem_req())
+					//{
+    	            //m_core->mshr_pressure = m_core->mshr_pressure >= 200 ? 200: (m_core->mshr_pressure+20) ;
+						//printf("Incr pressure! for %d\n",m_core->get_sid());
+					//	mf_next->p_inst->set_rep_mem_req();
+					//}
+					m_core->mshr_pressure+=1;
 			   }
 			   assert( !read_sent );
 			   assert( !write_sent );
@@ -1774,7 +1777,13 @@ void ldst_unit::L1_latency_queue_cycle()
 
 				if(status == MISS)
             	{
-    	            m_core->mshr_pressure = m_core->mshr_pressure == 0? 0: (m_core->mshr_pressure -1) ;
+    	            //m_core->mshr_pressure = m_core->mshr_pressure >= 200 ? 200: (m_core->mshr_pressure+1) ;
+					//if(!mf_next->p_inst->is_orig_mem_req()){
+					m_core->mshr_pressure-=30;
+					if (m_core->mshr_pressure < 0){
+                        m_core->mshr_pressure = 0;
+                    }
+                    //}
         	        //printf("Decr pressure!\n");
 	            }
 			   l1_latency_queue[0] = NULL;

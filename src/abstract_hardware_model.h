@@ -781,6 +781,7 @@ public:
    new_addr_type get_addr() const { return m_addr; }
    void set_addr(new_addr_type addr) {m_addr=addr;}
    unsigned get_size() const { return m_req_size; }
+   
    const active_mask_t &get_warp_mask() const { return m_warp_mask; }
    bool is_write() const { return m_write; }
    enum mem_access_type get_type() const { return m_type; }
@@ -1131,12 +1132,19 @@ public:
 
 	bool is_orig_mem_req() const
 	{
+	    //if (!m_accessq.back().is_original){
+	    if (m_accessq.back().is_original == true){
+		    printf("addr og %x:t\n",m_accessq.back().get_addr());
+        } else {
+		    printf("addr og %x:f\n",m_accessq.back().get_addr());
+        }
+        //}
 		return m_accessq.back().is_original;
 	}
 
 	void set_rep_mem_req()
 	{
-		//printf("Setting req in warp %u as repeat request!\n", m_dynamic_warp_id);
+		printf("addr to nog %x\n", m_accessq.back().get_addr());
 		m_accessq.back().is_original = false;
 	}
 

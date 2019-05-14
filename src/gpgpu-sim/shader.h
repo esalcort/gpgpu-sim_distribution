@@ -1787,7 +1787,7 @@ public:
                      const struct memory_config *mem_config,
                      shader_core_stats *stats );
 
-	uint32_t mshr_pressure;
+	int64_t mshr_pressure;
 		
 	// used by simt_core_cluster:
     // modifiers
