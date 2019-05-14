@@ -887,7 +887,7 @@ public:
     	assert(m_num_entries==num_entries && "Change of MSHR parameters between kernels is not allowed");
     	assert(m_max_merged==max_merged && "Change of MSHR parameters between kernels is not allowed");
     }
-
+    unsigned count_merged( new_addr_type block_addr ) const;
 private:
 
     // finite sized, fully associative table, with a finite maximum number of merged requests
@@ -1188,6 +1188,7 @@ protected:
     }; 
 
     bandwidth_management m_bandwidth_management; 
+    friend class memory_sub_partition;
 };
 
 /// Read only cache

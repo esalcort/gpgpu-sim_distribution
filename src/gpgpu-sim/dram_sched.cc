@@ -30,6 +30,7 @@
 #include "gpu-sim.h"
 #include "../abstract_hardware_model.h"
 #include "mem_latency_stat.h"
+#include "l2cache.h"
 
 frfcfs_scheduler::frfcfs_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats )
 {
@@ -71,6 +72,8 @@ void frfcfs_scheduler::add_req( dram_req_t *req )
 	//unsigned cluster = req->data->get_sid() / m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
 	//unsigned core = req->data->get_sid() % m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
 	//printf("DRAM access sid: %d, (cluster, core): (%d, %d)\n", req->data->get_sid(), cluster, core);
+	//TODO: This was meant to obtain the # of cores requesting this access, however, no benchmarks were found that show this behavior. Or... max merge of MSHR is 0 from the config. Does that default to warp size? Or is it actually avoiding merges? //Susy
+  //printf("DRAM access %x, sid: %d, reqs: %d\n", req->data->get_addr(), req->data->get_sid(), m_dram->m_memory_partition_unit->count_requesting_cores(req->data));
   if(m_config->seperate_write_queue_enabled && req->data->is_write()) {
 	  assert(m_num_write_pending < m_config->gpgpu_frfcfs_dram_write_queue_size);
 	  m_num_write_pending++;
