@@ -48,7 +48,8 @@ mem_fetch::mem_fetch( const mem_access_t &access,
    m_access = access;
    if( inst ) { 
        m_inst = *inst;
-       assert( wid == m_inst.warp_id() );
+       p_inst = nullptr;
+	   assert( wid == m_inst.warp_id() );
    }
    m_data_size = access.get_size();
    m_ctrl_size = ctrl_size;

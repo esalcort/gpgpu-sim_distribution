@@ -74,7 +74,7 @@ shader_core_ctx::shader_core_ctx( class gpgpu_sim *gpu,
                                   shader_core_stats *stats )
    : core_t( gpu, NULL, config->warp_size, config->n_thread_per_shader ),
      m_barriers( this, config->max_warps_per_shader, config->max_cta_per_core, config->max_barriers_per_cta, config->warp_size ),
-     m_dynamic_warp_id(0), m_active_warps(0)
+     m_dynamic_warp_id(0), m_active_warps(0), mshr_pressure(0)
 {
     m_cluster = cluster;
     m_config = config;
@@ -1636,11 +1636,12 @@ ldst_unit::process_cache_access( cache_t* cache,
         }
         if( !write_sent ) 
             delete mf;
-    } else if ( status == RESERVATION_FAIL ) {
-        result = BK_CONF;
-        assert( !read_sent );
-        assert( !write_sent );
-        delete mf;
+    } else if ( status == RESERVATION_FAIL ) 
+		{
+			result = BK_CONF;
+    	    assert( !read_sent );
+        	assert( !write_sent );
+        	delete mf;
     } else {
         assert( status == MISS || status == HIT_RESERVED );
         //inst.clear_active( access.get_warp_mask() ); // threads in mf writeback when mf returns
@@ -1674,6 +1675,7 @@ mem_stage_stall_type ldst_unit::process_memory_access_queue_l1cache( l1_cache *c
         return result;
 
     mem_fetch *mf = m_mf_allocator->alloc(inst,inst.accessq_back());
+	mf->p_inst = &inst;
 
     if(m_config->m_L1D_config.l1_latency > 0)
 	{
@@ -1719,6 +1721,7 @@ void ldst_unit::L1_latency_queue_cycle()
 
 		   bool write_sent = was_write_sent(events);
 		   bool read_sent = was_read_sent(events);
+		
 
 		   if ( status == HIT ) {
 			   assert( !read_sent );
@@ -1754,10 +1757,26 @@ void ldst_unit::L1_latency_queue_cycle()
 				   delete mf_next;
 
 		   } else if ( status == RESERVATION_FAIL ) {
+			   //printf("Reservation fail!\n");
+			   if(mf_next)
+			   {
+					if(mf_next->p_inst->is_orig_mem_req())
+					{
+						m_core->mshr_pressure++;
+						//printf("Incr pressure!\n");
+						mf_next->p_inst->set_rep_mem_req();
+					}
+			   }
 			   assert( !read_sent );
 			   assert( !write_sent );
 		   } else {
 			   assert( status == MISS || status == HIT_RESERVED );
+
+				if(status == MISS)
+            	{
+    	            m_core->mshr_pressure = m_core->mshr_pressure == 0? 0: (m_core->mshr_pressure -1) ;
+        	        //printf("Decr pressure!\n");
+	            }
 			   l1_latency_queue[0] = NULL;
 	   }
     }

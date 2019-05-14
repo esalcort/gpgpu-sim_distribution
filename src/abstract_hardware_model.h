@@ -777,6 +777,7 @@ public:
       m_write = wr;
    }
 
+   bool is_original;
    new_addr_type get_addr() const { return m_addr; }
    void set_addr(new_addr_type addr) {m_addr=addr;}
    unsigned get_size() const { return m_req_size; }
@@ -809,6 +810,7 @@ private:
       m_uid=++sm_next_access_uid;
       m_addr=0;
       m_req_size=0;
+	  is_original = true;
    }
 
    unsigned      m_uid;
@@ -1125,6 +1127,18 @@ public:
     void print( FILE *fout ) const;
     unsigned get_uid() const { return m_uid; }
     unsigned get_schd_id() const { return m_scheduler_id; }
+
+
+	bool is_orig_mem_req() const
+	{
+		return m_accessq.back().is_original;
+	}
+
+	void set_rep_mem_req()
+	{
+		//printf("Setting req in warp %u as repeat request!\n", m_dynamic_warp_id);
+		m_accessq.back().is_original = false;
+	}
 
 
 protected:
