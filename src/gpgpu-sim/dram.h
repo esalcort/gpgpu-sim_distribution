@@ -253,6 +253,7 @@ private:
    class gpgpu_sim* m_gpu;
    friend class frfcfs_scheduler;
    friend class frmp_scheduler;
+   friend class frlp_scheduler;
 };
 
 #endif /*DRAM_H*/

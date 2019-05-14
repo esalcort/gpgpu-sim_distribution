@@ -75,4 +75,11 @@ public:
    virtual dram_req_t *schedule( unsigned bank, unsigned curr_row );
 };
 
+class frlp_scheduler : public frfcfs_scheduler {
+public:
+   frlp_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats );
+   virtual dram_req_t *schedule( unsigned bank, unsigned curr_row );
+};
+
+
 #endif

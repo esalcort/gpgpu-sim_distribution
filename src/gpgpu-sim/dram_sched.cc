@@ -288,47 +288,36 @@ dram_req_t *frmp_scheduler::schedule( unsigned bank, unsigned curr_row )
 
     if ( m_current_last_row[bank] == NULL ) {
         if ( m_current_queue[bank].empty() ){
-           // std::cout << "q empty, " << m_num_pending << std::endl;
             return NULL;
         }
 
-        //std::cout << "cur_r" << curr_row << std::endl;
-        std::map<unsigned,std::list<std::list<dram_req_t*>::iterator> >::iterator bin_ptr = m_current_bins[bank].find( curr_row );
-        //If we did not find a row to reuse
-        if ( bin_ptr == m_current_bins[bank].end()) {
-            //find the max pressure in the queue
-            uint32_t mx_pressure = 0;
-            dram_req_t* mx_it = m_current_queue[bank].back(); //default to fcfs
-            for (dram_req_t* q_item : m_current_queue[bank]){
-                if (q_item->data->get_sid() == -1){
-                    mx_it = q_item;
-                    //std::cout << "-1 sid" << std::endl;
-                    break;
-                }
-                unsigned clid = q_item->data->get_sid() / m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
-                unsigned sid = q_item->data->get_sid() % m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
-                uint32_t pressure = m_dram->m_gpu->m_cluster[clid]->get_cores()[sid]->mshr_pressure;
-                //std::cout << pressure << "," << sid << "," << clid << "," << m_current_queue[bank].size() << std::endl;
-                if (pressure > mx_pressure){
-                    mx_pressure = pressure;
-                    mx_it = q_item;
-                }
+        //find the max pressure in the queue
+        int64_t mx_pressure = 0;
+        dram_req_t* mx_it = m_current_queue[bank].back(); //default to fcfs
+        for (dram_req_t* q_item : m_current_queue[bank]){
+            if (q_item->data->get_sid() == -1){
+                mx_it = q_item;
+                break;
             }
-            dram_req_t *req = mx_it;
-            bin_ptr = m_current_bins[bank].find( req->row );
-            assert( bin_ptr != m_current_bins[bank].end() ); // where did the request go???
-            m_current_last_row[bank] = &(bin_ptr->second);
-            data_collection(bank);
-            rowhit = false;
-        } else {
-            //std::cout << "er hit" << std::endl;
-            m_current_last_row[bank] = &(bin_ptr->second);
-            rowhit = true;
+            unsigned clid = q_item->data->get_sid() / m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
+            unsigned sid = q_item->data->get_sid() % m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
+            int64_t pressure = m_dram->m_gpu->m_cluster[clid]->get_cores()[sid]->mshr_pressure;
+            std::cout << "p,c,s" << pressure << "," << clid << "," << sid << std::endl;
+            if (pressure > mx_pressure){
+                mx_pressure = pressure;
+                mx_it = q_item;
+            }
         }
+        dram_req_t *req = mx_it;
+        auto bin_ptr = m_current_bins[bank].find( req->row );
+        assert( bin_ptr != m_current_bins[bank].end() ); // where did the request go???
+        m_current_last_row[bank] = &(bin_ptr->second);
+        data_collection(bank);
+        rowhit = false;
     } else {
-        //std::cout << "rr hit" << std::endl;
+        rowhit = true;
     }
-    //std::cout << "acc, " << m_dram->access_num << std::endl;
+
     std::list<dram_req_t*>::iterator next = m_current_last_row[bank]->back();
     dram_req_t *req = (*next);
 
@@ -375,6 +364,120 @@ dram_req_t *frmp_scheduler::schedule( unsigned bank, unsigned curr_row )
 
     return req;
 }
+
+frlp_scheduler::frlp_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats) : frfcfs_scheduler(config, dm, stats){
+    //nothing special
+}
+
+
+
+dram_req_t *frlp_scheduler::schedule( unsigned bank, unsigned curr_row )
+{
+    //row
+    bool rowhit = true;
+    std::list<dram_req_t*> *m_current_queue = m_queue;
+    std::map<unsigned,std::list<std::list<dram_req_t*>::iterator> > *m_current_bins = m_bins ;
+    std::list<std::list<dram_req_t*>::iterator> **m_current_last_row = m_last_row;
+
+    if(m_config->seperate_write_queue_enabled) {
+        if(m_mode == READ_MODE &&
+                ((m_num_write_pending >= m_config->write_high_watermark )
+                 // || (m_queue[bank].empty() && !m_write_queue[bank].empty())
+                )) {
+            m_mode = WRITE_MODE;
+        }
+        else if(m_mode == WRITE_MODE &&
+                (( m_num_write_pending < m_config->write_low_watermark )
+                 //  || (!m_queue[bank].empty() && m_write_queue[bank].empty())
+                )){
+            m_mode = READ_MODE;
+        }
+    }
+
+    if(m_mode == WRITE_MODE) {
+        m_current_queue = m_write_queue;
+        m_current_bins = m_write_bins ;
+        m_current_last_row = m_last_write_row;
+    }
+
+    if ( m_current_last_row[bank] == NULL ) {
+        if ( m_current_queue[bank].empty() ){
+            return NULL;
+        }
+
+        //find the min pressure in the queue
+        int64_t min_pressure = std::numeric_limits<int64_t>::max();
+        dram_req_t* min_it = m_current_queue[bank].back(); //default to fcfs
+        for (dram_req_t* q_item : m_current_queue[bank]){
+            if (q_item->data->get_sid() == -1){
+                min_it = q_item;
+                break;
+            }
+            unsigned clid = q_item->data->get_sid() / m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
+            unsigned sid = q_item->data->get_sid() % m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
+            int64_t pressure = m_dram->m_gpu->m_cluster[clid]->get_cores()[sid]->mshr_pressure;
+            if (pressure < min_pressure){
+                min_pressure = pressure;
+                min_it = q_item;
+            }
+        }
+        dram_req_t *req = min_it;
+        auto bin_ptr = m_current_bins[bank].find( req->row );
+        assert( bin_ptr != m_current_bins[bank].end() ); // where did the request go???
+        m_current_last_row[bank] = &(bin_ptr->second);
+        data_collection(bank);
+        rowhit = false;
+    } else {
+        rowhit = true;
+    }
+
+    std::list<dram_req_t*>::iterator next = m_current_last_row[bank]->back();
+    dram_req_t *req = (*next);
+
+    //rowblp stats
+    m_dram->access_num++;
+    bool is_write = req->data->is_write();
+        if(is_write)
+            m_dram->write_num++;
+        else
+            m_dram->read_num++;
+
+    if(rowhit) {
+        m_dram->hits_num++;
+        if(is_write)
+            m_dram->hits_write_num++;
+        else
+            m_dram->hits_read_num++;
+    }
+
+    m_stats->concurrent_row_access[m_dram->id][bank]++;
+    m_stats->row_access[m_dram->id][bank]++;
+    m_current_last_row[bank]->pop_back();
+
+    m_current_queue[bank].erase(next);
+    if ( m_current_last_row[bank]->empty() ) {
+        m_current_bins[bank].erase( req->row );
+        m_current_last_row[bank] = NULL;
+    }
+#ifdef DEBUG_FAST_IDEAL_SCHED
+    if ( req )
+        printf("%08u : DRAM(%u) scheduling memory request to bank=%u, row=%u\n", 
+                (unsigned)gpu_sim_cycle, m_dram->id, req->bk, req->row );
+#endif
+
+    if(m_config->seperate_write_queue_enabled && req->data->is_write()) {
+        assert( req != NULL && m_num_write_pending != 0 );
+        m_num_write_pending--;
+    }
+    else {
+        assert( req != NULL && m_num_pending != 0 );
+        m_num_pending--;
+        //std::cout << m_num_pending << std::endl;
+    }
+
+    return req;
+}
+
 
 
 

@@ -1762,13 +1762,10 @@ void ldst_unit::L1_latency_queue_cycle()
 			   //printf("Reservation fail!\n");
 			   if(mf_next)
 			   {
-					//if(mf_next->p_inst->is_orig_mem_req())
-					//{
-    	            //m_core->mshr_pressure = m_core->mshr_pressure >= 200 ? 200: (m_core->mshr_pressure+20) ;
-						//printf("Incr pressure! for %d\n",m_core->get_sid());
-					//	mf_next->p_inst->set_rep_mem_req();
-					//}
-					m_core->mshr_pressure+=1;
+					if(mf_next->is_orig){
+					    m_core->mshr_pressure+=1;
+					    mf_next->is_orig = false;
+                    }
 			   }
 			   assert( !read_sent );
 			   assert( !write_sent );
@@ -1777,14 +1774,10 @@ void ldst_unit::L1_latency_queue_cycle()
 
 				if(status == MISS)
             	{
-    	            //m_core->mshr_pressure = m_core->mshr_pressure >= 200 ? 200: (m_core->mshr_pressure+1) ;
-					//if(!mf_next->p_inst->is_orig_mem_req()){
-					m_core->mshr_pressure-=30;
+					m_core->mshr_pressure-=1;
 					if (m_core->mshr_pressure < 0){
                         m_core->mshr_pressure = 0;
                     }
-                    //}
-        	        //printf("Decr pressure!\n");
 	            }
 			   l1_latency_queue[0] = NULL;
 	   }

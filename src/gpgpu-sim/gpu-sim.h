@@ -68,7 +68,9 @@
 
 enum dram_ctrl_t {
    DRAM_FIFO=0,
-   DRAM_FRFCFS=1
+   DRAM_FRFCFS=1,
+   DRAM_FRMP=2,
+   DRAM_FRLP=3
 };
 
 
@@ -602,6 +604,7 @@ public:
 friend class dram_t;
 friend class frfcfs_scheduler;
 friend class frmp_scheduler;
+friend class frlp_scheduler;
 };
 
 
