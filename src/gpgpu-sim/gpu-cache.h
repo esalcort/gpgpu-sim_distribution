@@ -992,6 +992,8 @@ public:
 
     unsigned get_stats(enum mem_access_type *access_type, unsigned num_access_type, enum cache_request_status *access_status, unsigned num_access_status)  const;
     void get_sub_stats(struct cache_sub_stats &css) const;
+    //Susy
+    unsigned get_fail_stats(enum mem_access_type *access_type, unsigned num_access_type, enum cache_reservation_fail_reason *fail_reason, unsigned num_access_status)  const;
 
     void sample_cache_port_utility(bool data_port_busy, bool fill_port_busy); 
 private:

@@ -71,10 +71,21 @@ void frfcfs_scheduler::add_req( dram_req_t *req )
 	//TODO: Use as sample to access cluster, core, and other gpgpu_sim members. Then REMOVE
   int sid = req->data->get_sid();
   bool prioritize = false;
+  static unsigned max_miss_queue_full_fails = 0;
   if (sid >= 0){
       unsigned cluster_id = sid / m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
       unsigned core_id = sid % m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
       prioritize = m_dram->m_gpu->m_cluster[cluster_id]->get_cores()[core_id]->is_mshr_full();
+      cache_stats cs;
+      m_dram->m_gpu->m_cluster[cluster_id]->get_cores()[core_id]->get_cache_stats(cs);
+      enum mem_access_type l1d_acc_list[] = {GLOBAL_ACC_R, LOCAL_ACC_R, GLOBAL_ACC_W, LOCAL_ACC_W};
+      enum cache_reservation_fail_reason miss_q_fails[] = {MISS_QUEUE_FULL};
+      unsigned fails = cs.get_fail_stats(l1d_acc_list, 4, miss_q_fails, 1);
+      if (fails > max_miss_queue_full_fails) {
+        prioritize = true;
+        max_miss_queue_full_fails = fails;
+      //printf("Max miss queue fails: %d\n", fails);
+      }
       if (prioritize){
       //  printf("DRAM access sid: %d, (cluster, core) MSHR is full: (%d, %d)\n", req->data->get_sid(), cluster_id, core_id);
         m_dram->n_prioritized_reqs++;
@@ -87,19 +98,23 @@ void frfcfs_scheduler::add_req( dram_req_t *req )
 	  m_num_write_pending++;
 	  m_write_queue[req->bk].push_front(req);
 	  std::list<dram_req_t*>::iterator ptr = m_write_queue[req->bk].begin();
-	  if (prioritize)
+	  if (prioritize){
 	      m_write_bins[req->bk][req->row].push_back( ptr ); //newest reqs to the front
-          else
+      }
+      else {
 	      m_write_bins[req->bk][req->row].push_front( ptr ); //newest reqs to the front
+      }
   } else {
 	   assert(m_num_pending < m_config->gpgpu_frfcfs_dram_sched_queue_size);
 	   m_num_pending++;
 	   m_queue[req->bk].push_front(req);
 	   std::list<dram_req_t*>::iterator ptr = m_queue[req->bk].begin();
-	   if (prioritize)
+	   if (prioritize){
 	       m_bins[req->bk][req->row].push_back( ptr ); //newest reqs to the front
-           else
+        }
+        else{
 	       m_bins[req->bk][req->row].push_front( ptr ); //newest reqs to the front
+        }
   }
 }
 
