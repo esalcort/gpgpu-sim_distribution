@@ -160,6 +160,8 @@ private:
    void scheduler_fifo();
    void scheduler_frfcfs();
 
+   bool frfcfs_like;
+
    bool issue_col_command(int j);
    bool issue_row_command(int j);
 
@@ -253,6 +255,7 @@ private:
    class gpgpu_sim* m_gpu;
    friend class frfcfs_scheduler;
    friend class frmp_scheduler;
+   friend class frmpB_scheduler;
    friend class frlp_scheduler;
 };
 

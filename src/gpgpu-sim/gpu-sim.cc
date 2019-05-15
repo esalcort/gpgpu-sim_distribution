@@ -975,8 +975,13 @@ void gpgpu_sim::print_heartbeat_stats()
 	unsigned *core_di = m_shader_stats->m_pcore_dual_issue;
 	unsigned num_cores = m_shader_config->num_shader();
         unsigned int bwutil=0, n_cmd=0, n_activity=0; // DRAM stats
+	static char fname[1000];
+    static int r_num;
 	if (first_line) {
-		pfile = fopen("heartbeat_stats.txt","w");
+        srand (time(NULL));
+        r_num = rand();
+	    sprintf(fname, "heartbeat_stats_%d.txt", r_num);
+		pfile = fopen(fname,"w");
 		// Global stats
 		fprintf(pfile, "cycles, instructions, stall_dramfull, stall_icnt2sh, ");
 		// Global L1I stats
@@ -998,7 +1003,7 @@ void gpgpu_sim::print_heartbeat_stats()
 		first_line = 0;
 	}	
 	else {
-		pfile = fopen("heartbeat_stats.txt","a");
+		pfile = fopen(fname,"a");
 	}
 	cache_stats all_cache_stats;
 	cache_stats *core_cache_stats = new cache_stats[num_cores];

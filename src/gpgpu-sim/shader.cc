@@ -1759,7 +1759,6 @@ void ldst_unit::L1_latency_queue_cycle()
 
 
 		   } else if ( status == RESERVATION_FAIL ) {
-			   //printf("Reservation fail!\n");
 			   if(mf_next)
 			   {
 					if(mf_next->is_orig){
@@ -1774,9 +1773,11 @@ void ldst_unit::L1_latency_queue_cycle()
 
 				if(status == MISS)
             	{
-					m_core->mshr_pressure-=1;
-					if (m_core->mshr_pressure < 0){
-                        m_core->mshr_pressure = 0;
+            	    if (!mf_next->is_orig){
+                        m_core->mshr_pressure-=1;
+                        if (m_core->mshr_pressure < 0){
+                            m_core->mshr_pressure = 0;
+                        }
                     }
 	            }
 			   l1_latency_queue[0] = NULL;
