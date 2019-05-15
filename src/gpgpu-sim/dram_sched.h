@@ -92,6 +92,8 @@ class clams_scheduler : public frfcfs_scheduler {
 public:
    clams_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats );
    virtual dram_req_t *schedule( unsigned bank, unsigned curr_row );
+protected:
+   int m_last_qid;
 };
 
 
