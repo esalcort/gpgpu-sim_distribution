@@ -127,6 +127,9 @@ dram_t::dram_t( unsigned int partition_id, const struct memory_config *config, m
    } else if (m_config->scheduler_type == DRAM_FRMP_B){
       m_frfcfs_scheduler = new frmpB_scheduler(m_config,this,stats);
       frfcfs_like = true;
+   } else if (m_config->scheduler_type == DRAM_CLAMS) {
+      m_frfcfs_scheduler = new clams_scheduler(m_config,this,stats);
+      frfcfs_like = true;
    }
 
    n_cmd = 0;
@@ -322,6 +325,7 @@ void dram_t::cycle()
    case DRAM_FRMP: scheduler_frfcfs(); break;
    case DRAM_FRMP_B: scheduler_frfcfs(); break;
    case DRAM_FRLP: scheduler_frfcfs(); break;
+   case DRAM_CLAMS: scheduler_frfcfs(); break;
 	default:
 		printf("Error: Unknown DRAM scheduler type\n");
 		assert(0);
