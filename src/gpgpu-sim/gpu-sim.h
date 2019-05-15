@@ -68,7 +68,9 @@
 
 enum dram_ctrl_t {
    DRAM_FIFO=0,
-   DRAM_FRFCFS=1
+   DRAM_FRFCFS=1,
+   DRAM_FRMP=2,
+   DRAM_FRLP=3
 };
 
 
@@ -513,7 +515,10 @@ private:
 
 ///// data /////
 
+public:
    class simt_core_cluster **m_cluster;
+
+private:
    class memory_partition_unit **m_memory_partition_unit;
    class memory_sub_partition **m_memory_sub_partition;
 
@@ -585,6 +590,7 @@ private:
 public:
    bool is_functional_sim() { return m_functional_sim; }
    kernel_info_t * get_functional_kernel() { return m_functional_sim_kernel; }
+   
    void functional_launch(kernel_info_t * k) {
      m_functional_sim = true;
      m_functional_sim_kernel = k;
@@ -597,6 +603,8 @@ public:
    }
 friend class dram_t;
 friend class frfcfs_scheduler;
+friend class frmp_scheduler;
+friend class frlp_scheduler;
 };
 
 

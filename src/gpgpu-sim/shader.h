@@ -1790,7 +1790,9 @@ public:
                      const struct memory_config *mem_config,
                      shader_core_stats *stats );
 
-// used by simt_core_cluster:
+	int64_t mshr_pressure;
+		
+	// used by simt_core_cluster:
     // modifiers
     void cycle();
     void reinit(unsigned start_thread, unsigned end_thread, bool reset_not_completed );
@@ -1827,6 +1829,7 @@ public:
     virtual bool warp_waiting_at_barrier( unsigned warp_id ) const;
     void get_pdom_stack_top_info( unsigned tid, unsigned *pc, unsigned *rpc ) const;
     float get_current_occupancy( unsigned long long & active, unsigned long long & total ) const;
+	uint32_t get_mshr_pressure() const { return mshr_pressure;}
 
 // used by pipeline timing model components:
     // modifiers

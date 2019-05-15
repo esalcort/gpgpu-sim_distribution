@@ -777,9 +777,11 @@ public:
       m_write = wr;
    }
 
+   bool is_original;
    new_addr_type get_addr() const { return m_addr; }
    void set_addr(new_addr_type addr) {m_addr=addr;}
    unsigned get_size() const { return m_req_size; }
+   
    const active_mask_t &get_warp_mask() const { return m_warp_mask; }
    bool is_write() const { return m_write; }
    enum mem_access_type get_type() const { return m_type; }
@@ -809,6 +811,7 @@ private:
       m_uid=++sm_next_access_uid;
       m_addr=0;
       m_req_size=0;
+	  is_original = true;
    }
 
    unsigned      m_uid;
@@ -1125,6 +1128,25 @@ public:
     void print( FILE *fout ) const;
     unsigned get_uid() const { return m_uid; }
     unsigned get_schd_id() const { return m_scheduler_id; }
+
+
+	bool is_orig_mem_req() const
+	{
+	    //if (!m_accessq.back().is_original){
+	    if (m_accessq.back().is_original == true){
+		    printf("addr og %x:t\n",m_accessq.back().get_addr());
+        } else {
+		    printf("addr og %x:f\n",m_accessq.back().get_addr());
+        }
+        //}
+		return m_accessq.back().is_original;
+	}
+
+	void set_rep_mem_req()
+	{
+		printf("addr to nog %x\n", m_accessq.back().get_addr());
+		m_accessq.back().is_original = false;
+	}
 
 
 protected:
