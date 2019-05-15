@@ -110,16 +110,19 @@ dram_t::dram_t( unsigned int partition_id, const struct memory_config *config, m
    }
    prio = 0;
 
+   m_gpu = gpu;
    rwq = new fifo_pipeline<dram_req_t>("rwq",m_config->CL,m_config->CL+1);
    mrqq = new fifo_pipeline<dram_req_t>("mrqq",0,2);
    returnq = new fifo_pipeline<mem_fetch>("dramreturnq",0,m_config->gpgpu_dram_return_queue_size==0?1024:m_config->gpgpu_dram_return_queue_size); 
    m_frfcfs_scheduler = NULL;
-   if ( (m_config->scheduler_type == DRAM_FRFCFS) || (m_config->scheduler_type == DRAM_FBFRFCFS) ){
+   if ( m_config->scheduler_type == DRAM_FRFCFS){
       m_frfcfs_scheduler = new frfcfs_scheduler(m_config,this,stats);
    } else if (m_config->scheduler_type == DRAM_FRMP){
       m_frfcfs_scheduler = new frmp_scheduler(m_config,this,stats);
    } else if (m_config->scheduler_type == DRAM_FRLP){
       m_frfcfs_scheduler = new frlp_scheduler(m_config,this,stats);
+   } else if  (m_config->scheduler_type == DRAM_FBFRFCFS) {
+      m_frfcfs_scheduler = new fbfrfcfs_scheduler(m_config,this,stats);
    }
 
    n_cmd = 0;

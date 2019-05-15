@@ -68,56 +68,21 @@ frfcfs_scheduler::frfcfs_scheduler( const memory_config *config, dram_t *dm, mem
 
 void frfcfs_scheduler::add_req( dram_req_t *req )
 {
-	//TODO: Use as sample to access cluster, core, and other gpgpu_sim members. Then REMOVE
-  bool prioritize = false;
-  static unsigned max_miss_queue_full_fails = 0;
-  if (m_config->scheduler_type == DRAM_FBFRFCFS) {
-    int sid = req->data->get_sid();
-    if (sid >= 0){
-        unsigned cluster_id = sid / m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
-        unsigned core_id = sid % m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
-        prioritize = m_dram->m_gpu->m_cluster[cluster_id]->get_cores()[core_id]->is_mshr_full();
-        cache_stats cs;
-        m_dram->m_gpu->m_cluster[cluster_id]->get_cores()[core_id]->get_cache_stats(cs);
-        enum mem_access_type l1d_acc_list[] = {GLOBAL_ACC_R, LOCAL_ACC_R, GLOBAL_ACC_W, LOCAL_ACC_W};
-        enum cache_reservation_fail_reason miss_q_fails[] = {MISS_QUEUE_FULL};
-        unsigned fails = cs.get_fail_stats(l1d_acc_list, 4, miss_q_fails, 1);
-        if (fails > max_miss_queue_full_fails) {
-          prioritize = true;
-          max_miss_queue_full_fails = fails;
-        //printf("Max miss queue fails: %d\n", fails);
-        }
-        if (prioritize){
-        //  printf("DRAM access sid: %d, (cluster, core) MSHR is full: (%d, %d)\n", req->data->get_sid(), cluster_id, core_id);
-          m_dram->n_prioritized_reqs++;
-        }
-    }
-  }
 	//TODO: This was meant to obtain the # of cores requesting this access, however, no benchmarks were found that show this behavior. Or... max merge of MSHR is 0 from the config. Does that default to warp size? Or is it actually avoiding merges? //Susy
   //printf("DRAM access %x, sid: %d, reqs: %d\n", req->data->get_addr(), req->data->get_sid(), m_dram->m_memory_partition_unit->count_requesting_cores(req->data));
   if(m_config->seperate_write_queue_enabled && req->data->is_write()) {
-	  assert(m_num_write_pending < m_config->gpgpu_frfcfs_dram_write_queue_size);
-	  m_num_write_pending++;
-	  m_write_queue[req->bk].push_front(req);
-	  std::list<dram_req_t*>::iterator ptr = m_write_queue[req->bk].begin();
-	  if (prioritize){
-	      m_write_bins[req->bk][req->row].push_back( ptr ); //priority reqs to the back
-      }
-      else {
-	      m_write_bins[req->bk][req->row].push_front( ptr ); //newest reqs to the front
-      }
-  } else {
-	   assert(m_num_pending < m_config->gpgpu_frfcfs_dram_sched_queue_size);
-	   m_num_pending++;
-	   m_queue[req->bk].push_front(req);
-	   std::list<dram_req_t*>::iterator ptr = m_queue[req->bk].begin();
-	   if (prioritize){
-	       m_bins[req->bk][req->row].push_back( ptr ); //priority reqs to the back
-        }
-        else{
-	       m_bins[req->bk][req->row].push_front( ptr ); //newest reqs to the front
-        }
-  }
+        assert(m_num_write_pending < m_config->gpgpu_frfcfs_dram_write_queue_size);
+        m_num_write_pending++;
+        m_write_queue[req->bk].push_front(req);
+        std::list<dram_req_t*>::iterator ptr = m_write_queue[req->bk].begin();
+        m_write_bins[req->bk][req->row].push_front( ptr ); //newest reqs to the front
+    } else {
+        assert(m_num_pending < m_config->gpgpu_frfcfs_dram_sched_queue_size);
+        m_num_pending++;
+        m_queue[req->bk].push_front(req);
+        std::list<dram_req_t*>::iterator ptr = m_queue[req->bk].begin();
+        m_bins[req->bk][req->row].push_front( ptr ); //newest reqs to the front
+    }
 }
 
 void frfcfs_scheduler::data_collection(unsigned int bank)
@@ -512,6 +477,78 @@ dram_req_t *frlp_scheduler::schedule( unsigned bank, unsigned curr_row )
 }
 
 
+fbfrfcfs_scheduler::fbfrfcfs_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats) : frfcfs_scheduler(config, dm, stats){
+  unsigned n_clusters = dm->m_gpu->m_config.num_cluster();
+  unsigned n_cores = dm->m_gpu->m_shader_config->n_simt_cores_per_cluster;
+  m_fail_table = new res_fail_timestamp*[n_clusters];
+  for (unsigned i = 0; i < n_clusters; i++){
+    m_fail_table[i] = new res_fail_timestamp[n_cores];
+    for (unsigned j = 0; j < n_cores; j++) {
+      m_fail_table[i][j].last_miss_queue_full = 0;
+      m_fail_table[i][j].updated_cycles = 0;
+    }
+  } 
+}
+
+
+
+void fbfrfcfs_scheduler::add_req( dram_req_t *req )
+{
+	//TODO: Use as sample to access cluster, core, and other gpgpu_sim members. Then REMOVE
+  bool prioritize = false;
+  static unsigned max_miss_queue_full_fails = 0;
+  int sid = req->data->get_sid();
+  if (sid >= 0){
+      unsigned cluster_id = sid / m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
+      unsigned core_id = sid % m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
+      prioritize = m_dram->m_gpu->m_cluster[cluster_id]->get_cores()[core_id]->is_mshr_full();
+      cache_stats cs;
+      m_dram->m_gpu->m_cluster[cluster_id]->get_cores()[core_id]->get_cache_stats(cs);
+      enum mem_access_type l1d_acc_list[] = {GLOBAL_ACC_R, LOCAL_ACC_R, GLOBAL_ACC_W, LOCAL_ACC_W};
+      enum cache_reservation_fail_reason miss_q_fails[] = {MISS_QUEUE_FULL};
+      unsigned fails = cs.get_fail_stats(l1d_acc_list, 4, miss_q_fails, 1);
+      if (fails > max_miss_queue_full_fails) {
+        prioritize = true;
+        max_miss_queue_full_fails = fails;
+      //printf("Max miss queue fails: %d\n", fails);
+      }
+      if (prioritize){
+      //  printf("DRAM access sid: %d, (cluster, core) MSHR is full: (%d, %d)\n", req->data->get_sid(), cluster_id, core_id);
+        m_dram->n_prioritized_reqs++;
+      }
+  }
+	//TODO: This was meant to obtain the # of cores requesting this access, however, no benchmarks were found that show this behavior. Or... max merge of MSHR is 0 from the config. Does that default to warp size? Or is it actually avoiding merges? //Susy
+  //printf("DRAM access %x, sid: %d, reqs: %d\n", req->data->get_addr(), req->data->get_sid(), m_dram->m_memory_partition_unit->count_requesting_cores(req->data));
+  if(m_config->seperate_write_queue_enabled && req->data->is_write()) {
+	  assert(m_num_write_pending < m_config->gpgpu_frfcfs_dram_write_queue_size);
+	  m_num_write_pending++;
+	  if (prioritize){
+ m_write_queue[req->bk].push_back(req);
+ std::list<dram_req_t*>::iterator ptr = std::prev(m_write_queue[req->bk].end());
+ m_write_bins[req->bk][req->row].push_back( ptr ); //newest reqs to the front
+      }
+      else {
+ m_write_queue[req->bk].push_front(req);
+ std::list<dram_req_t*>::iterator ptr = m_write_queue[req->bk].begin();
+ m_write_bins[req->bk][req->row].push_front( ptr ); //newest reqs to the front
+      }
+  } else {
+	   assert(m_num_pending < m_config->gpgpu_frfcfs_dram_sched_queue_size);
+	   m_num_pending++;
+	  
+	 
+	   if (prioritize){
+ m_queue[req->bk].push_back(req);
+ std::list<dram_req_t*>::iterator ptr = std::prev(m_queue[req->bk].end());
+ m_bins[req->bk][req->row].push_back( ptr ); //newest reqs to the front
+        }
+        else{
+ m_queue[req->bk].push_front(req);
+ std::list<dram_req_t*>::iterator ptr = m_queue[req->bk].begin();
+ m_bins[req->bk][req->row].push_front( ptr ); //newest reqs to the front
+        }
+  }
+}
 
 
 /*
