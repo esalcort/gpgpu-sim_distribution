@@ -864,6 +864,8 @@ public:
     {
     }
 
+    int get_size() { return m_data.size();}
+
     /// Checks if there is a pending request to the lower memory level already
     bool probe( new_addr_type block_addr ) const;
     /// Checks if there is space for tracking a new memory access
@@ -1035,6 +1037,8 @@ public:
     {
         init( name, config, memport, status );
     }
+
+    int get_mshr_size() { return m_mshrs.get_size(); }
 
     void init( const char *name,
                const cache_config &config,

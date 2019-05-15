@@ -255,6 +255,7 @@ frmp_scheduler::frmp_scheduler( const memory_config *config, dram_t *dm, memory_
     //nothing special
 }
 
+
 dram_req_t *frmp_scheduler::schedule( unsigned bank, unsigned curr_row )
 {
     //row
@@ -288,19 +289,26 @@ dram_req_t *frmp_scheduler::schedule( unsigned bank, unsigned curr_row )
         if ( m_current_queue[bank].empty() ){
             return NULL;
         }
-
+ 
         //find the max pressure in the queue
         int64_t mx_pressure = 0;
         dram_req_t* mx_it = m_current_queue[bank].back(); //default to fcfs
-        for (dram_req_t* q_item : m_current_queue[bank]){
-            if (q_item->data->get_sid() == -1){
+        dram_req_t* q_item = nullptr;
+        for (auto it = m_current_queue[bank].rbegin(); it != m_current_queue[bank].rend(); ++it){
+            q_item = *it;
+            
+            if ( ((gpu_sim_cycle + gpu_tot_sim_cycle) - q_item->timestamp) > (m_config->gpgpu_frfcfs_dram_write_queue_size) ){
                 mx_it = q_item;
                 break;
+            } 
+            if (q_item->data->get_sid() == -1){
+                continue;
             }
+
             unsigned clid = q_item->data->get_sid() / m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
             unsigned sid = q_item->data->get_sid() % m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
             int64_t pressure = m_dram->m_gpu->m_cluster[clid]->get_cores()[sid]->mshr_pressure;
-            std::cout << "p,c,s" << pressure << "," << clid << "," << sid << std::endl;
+            //std::cout << "p,c,s" << pressure << "," << clid << "," << sid << std::endl;
             if (pressure > mx_pressure){
                 mx_pressure = pressure;
                 mx_it = q_item;
@@ -490,11 +498,8 @@ fbfrfcfs_scheduler::fbfrfcfs_scheduler( const memory_config *config, dram_t *dm,
   } 
 }
 
-
-
 void fbfrfcfs_scheduler::add_req( dram_req_t *req )
 {
-	//TODO: Use as sample to access cluster, core, and other gpgpu_sim members. Then REMOVE
   bool prioritize = false;
   static unsigned max_miss_queue_full_fails = 0;
   int sid = req->data->get_sid();
@@ -549,6 +554,217 @@ void fbfrfcfs_scheduler::add_req( dram_req_t *req )
         }
   }
 }
+frmpB_scheduler::frmpB_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats) : frfcfs_scheduler(config, dm, stats){
+    //nothing special
+}
+
+
+dram_req_t *frmpB_scheduler::schedule( unsigned bank, unsigned curr_row )
+{
+    //row
+    bool rowhit = true;
+    std::list<dram_req_t*> *m_current_queue = m_queue;
+    std::map<unsigned,std::list<std::list<dram_req_t*>::iterator> > *m_current_bins = m_bins ;
+    std::list<std::list<dram_req_t*>::iterator> **m_current_last_row = m_last_row;
+
+    if(m_config->seperate_write_queue_enabled) {
+        if(m_mode == READ_MODE &&
+                ((m_num_write_pending >= m_config->write_high_watermark )
+                 // || (m_queue[bank].empty() && !m_write_queue[bank].empty())
+                )) {
+            m_mode = WRITE_MODE;
+        }
+        else if(m_mode == WRITE_MODE &&
+                (( m_num_write_pending < m_config->write_low_watermark )
+                 //  || (!m_queue[bank].empty() && m_write_queue[bank].empty())
+                )){
+            m_mode = READ_MODE;
+        }
+    }
+
+    if(m_mode == WRITE_MODE) {
+        m_current_queue = m_write_queue;
+        m_current_bins = m_write_bins ;
+        m_current_last_row = m_last_write_row;
+    }
+
+    if ( m_current_last_row[bank] == NULL ) {
+        if ( m_current_queue[bank].empty() ){
+            return NULL;
+        }
+ 
+        //find the max pressure in the queue
+        int64_t mx_pressure = 0;
+        dram_req_t* mx_it = m_current_queue[bank].back(); //default to fcfs
+        dram_req_t* q_item = nullptr;
+        for (auto it = m_current_queue[bank].rbegin(); it != m_current_queue[bank].rend(); ++it){
+            q_item = *it;
+            
+            if ( ((gpu_sim_cycle + gpu_tot_sim_cycle) - q_item->timestamp) > (m_config->gpgpu_frfcfs_dram_write_queue_size) ){
+                mx_it = q_item;
+                break;
+            } 
+            if (q_item->data->get_sid() == -1){
+                continue;
+            }
+
+            unsigned clid = q_item->data->get_sid() / m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
+            unsigned sid = q_item->data->get_sid() % m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
+            shader_core_ctx* sc = m_dram->m_gpu->m_cluster[clid]->get_cores()[sid];
+            int64_t pressure = sc->mshr_pressure * 20 + sc->get_mshr_size();
+            //std::cout << "p,c,s" << pressure << "," << clid << "," << sid << std::endl;
+            if (pressure > mx_pressure){
+                mx_pressure = pressure;
+                mx_it = q_item;
+            }
+        }
+        dram_req_t *req = mx_it;
+        auto bin_ptr = m_current_bins[bank].find( req->row );
+        assert( bin_ptr != m_current_bins[bank].end() ); // where did the request go???
+        m_current_last_row[bank] = &(bin_ptr->second);
+        data_collection(bank);
+        rowhit = false;
+    } else {
+        rowhit = true;
+    }
+
+    std::list<dram_req_t*>::iterator next = m_current_last_row[bank]->back();
+    dram_req_t *req = (*next);
+
+    //rowblp stats
+    m_dram->access_num++;
+    bool is_write = req->data->is_write();
+        if(is_write)
+            m_dram->write_num++;
+        else
+            m_dram->read_num++;
+
+    if(rowhit) {
+        m_dram->hits_num++;
+        if(is_write)
+            m_dram->hits_write_num++;
+        else
+            m_dram->hits_read_num++;
+    }
+
+    m_stats->concurrent_row_access[m_dram->id][bank]++;
+    m_stats->row_access[m_dram->id][bank]++;
+    m_current_last_row[bank]->pop_back();
+
+    m_current_queue[bank].erase(next);
+    if ( m_current_last_row[bank]->empty() ) {
+        m_current_bins[bank].erase( req->row );
+        m_current_last_row[bank] = NULL;
+    }
+#ifdef DEBUG_FAST_IDEAL_SCHED
+    if ( req )
+        printf("%08u : DRAM(%u) scheduling memory request to bank=%u, row=%u\n", 
+                (unsigned)gpu_sim_cycle, m_dram->id, req->bk, req->row );
+#endif
+
+    if(m_config->seperate_write_queue_enabled && req->data->is_write()) {
+        assert( req != NULL && m_num_write_pending != 0 );
+        m_num_write_pending--;
+    }
+    else {
+        assert( req != NULL && m_num_pending != 0 );
+        m_num_pending--;
+        //std::cout << m_num_pending << std::endl;
+    }
+
+    return req;
+}
+
+
+clams_scheduler::clams_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats) : frfcfs_scheduler(config, dm, stats){
+    //nothing special
+}
+
+dram_req_t *clams_scheduler::schedule( unsigned bank, unsigned curr_row )
+{
+    //row
+    bool rowhit = true;
+    std::list<dram_req_t*> *m_current_queue = m_queue;
+
+    if(m_config->seperate_write_queue_enabled) {
+        if(m_mode == READ_MODE &&
+                ((m_num_write_pending >= m_config->write_high_watermark )
+                 // || (m_queue[bank].empty() && !m_write_queue[bank].empty())
+                )) {
+            m_mode = WRITE_MODE;
+        }
+        else if(m_mode == WRITE_MODE &&
+                (( m_num_write_pending < m_config->write_low_watermark )
+                 //  || (!m_queue[bank].empty() && m_write_queue[bank].empty())
+                )){
+            m_mode = READ_MODE;
+        }
+    }
+
+    if(m_mode == WRITE_MODE) {
+        m_current_queue = m_write_queue;
+    }
+
+     //find the max pressure in the queue
+       
+    if ( m_current_queue[bank].empty() ){
+        return NULL;
+    }
+    std::map<int, std::pair<int, dram_req_t*> > qid_count;
+
+    std::cout << "q:[" ;
+    for (auto q_item = m_current_queue[bank].rbegin(); q_item != m_current_queue[bank].rend(); ++q_item){
+        std::cout << (*q_item)->data->get_wid() << "-" << (*q_item)->data->get_sid() << " , ";
+        int qid = (*q_item)->data->get_wid() + (*q_item)->data->get_sid();
+        auto f_it = qid_count.find(qid);
+        if (f_it != qid_count.end()){
+            f_it->second.first++;
+        } else {
+            qid_count[qid] = std::make_pair(0,*q_item);
+        }
+    }
+    std::cout << "]" << std::endl;
+
+    int min_v = std::numeric_limits<int>::max();
+    dram_req_t *req = nullptr; //last item in queue by default
+    for (auto it = qid_count.cbegin(); it != qid_count.cend(); ++it){
+        if (it->second.first < min_v){
+            min_v = it->second.first;
+            req = it->second.second;
+        }
+    }
+
+    if (req == nullptr){
+        assert(0);
+    }
+    
+    std::cout << "sch: wid, sid" << req->data->get_wid() << "," << req->data->get_sid() << std::endl; 
+ 
+    data_collection(bank);
+    rowhit = false;
+
+    //rowblp stats
+    m_dram->access_num++;
+    bool is_write = req->data->is_write();
+        if(is_write)
+            m_dram->write_num++;
+        else
+            m_dram->read_num++;
+
+    m_current_queue[bank].remove(req);
+   
+    if(m_config->seperate_write_queue_enabled && req->data->is_write()) {
+        assert( req != NULL && m_num_write_pending != 0 );
+        m_num_write_pending--;
+    }
+    else {
+        assert( req != NULL && m_num_pending != 0 );
+        m_num_pending--;
+    }
+
+    return req;
+}
+
 
 
 /*

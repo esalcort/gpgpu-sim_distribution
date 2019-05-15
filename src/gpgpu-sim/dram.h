@@ -160,6 +160,8 @@ private:
    void scheduler_fifo();
    void scheduler_frfcfs();
 
+   bool frfcfs_like;
+
    bool issue_col_command(int j);
    bool issue_row_command(int j);
 
@@ -255,8 +257,10 @@ private:
    unsigned int n_prioritized_reqs;
    friend class frfcfs_scheduler;
    friend class frmp_scheduler;
+   friend class frmpB_scheduler;
    friend class frlp_scheduler;
    friend class fbfrfcfs_scheduler;
+   friend class clams_scheduler;
 };
 
 #endif /*DRAM_H*/

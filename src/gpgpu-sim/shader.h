@@ -177,6 +177,7 @@ public:
     void store_info_of_last_inst_at_barrier(const warp_inst_t *pI){ m_inst_at_barrier = pI;}
     const warp_inst_t * restore_info_of_last_inst_at_barrier(){ return m_inst_at_barrier;}
 
+
     void ibuffer_fill( unsigned slot, const warp_inst_t *pI )
     {
        assert(slot < IBUFFER_SIZE );
@@ -1268,6 +1269,7 @@ public:
 
     //Susy
     bool is_mshr_full(){return m_L1D->is_mshr_full();}
+    int get_mshr_size() { return m_L1D->get_mshr_size(); }
 
 protected:
     ldst_unit( mem_fetch_interface *icnt,
@@ -1820,6 +1822,8 @@ public:
     unsigned isactive() const {if(m_n_active_cta>0) return 1; else return 0;}
     kernel_info_t *get_kernel() { return m_kernel; }
     unsigned get_sid() const {return m_sid;}
+
+    int get_mshr_size() { return m_ldst_unit->get_mshr_size(); }
 
 // used by functional simulation:
     // modifiers
