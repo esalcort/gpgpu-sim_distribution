@@ -70,7 +70,8 @@ enum dram_ctrl_t {
    DRAM_FIFO=0,
    DRAM_FRFCFS=1,
    DRAM_FRMP=2,
-   DRAM_FRLP=3
+   DRAM_FRLP=3,
+   DRAM_FBFRFCFS=4 //Full (miss_queue or mshr) to Back and FRFCFS
 };
 
 

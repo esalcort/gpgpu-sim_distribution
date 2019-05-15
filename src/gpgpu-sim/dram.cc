@@ -114,7 +114,7 @@ dram_t::dram_t( unsigned int partition_id, const struct memory_config *config, m
    mrqq = new fifo_pipeline<dram_req_t>("mrqq",0,2);
    returnq = new fifo_pipeline<mem_fetch>("dramreturnq",0,m_config->gpgpu_dram_return_queue_size==0?1024:m_config->gpgpu_dram_return_queue_size); 
    m_frfcfs_scheduler = NULL;
-   if ( m_config->scheduler_type == DRAM_FRFCFS){
+   if ( (m_config->scheduler_type == DRAM_FRFCFS) || (m_config->scheduler_type == DRAM_FBFRFCFS) ){
       m_frfcfs_scheduler = new frfcfs_scheduler(m_config,this,stats);
    } else if (m_config->scheduler_type == DRAM_FRMP){
       m_frfcfs_scheduler = new frmp_scheduler(m_config,this,stats);
@@ -162,7 +162,7 @@ dram_t::dram_t( unsigned int partition_id, const struct memory_config *config, m
 
 bool dram_t::full(bool is_write) const
 {
-    if( (m_config->scheduler_type == DRAM_FRFCFS ) || (m_config->scheduler_type == DRAM_FRMP) || (m_config->scheduler_type == DRAM_FRLP )){
+    if( (m_config->scheduler_type == DRAM_FRFCFS ) || (m_config->scheduler_type == DRAM_FRMP) || (m_config->scheduler_type == DRAM_FRLP ) || (m_config->scheduler_type == DRAM_FBFRFCFS) ){
         if(m_config->gpgpu_frfcfs_dram_sched_queue_size == 0 ) return false;
         if(m_config->seperate_write_queue_enabled){
         	if(is_write)
@@ -179,7 +179,7 @@ bool dram_t::full(bool is_write) const
 unsigned dram_t::que_length() const
 {
    unsigned nreqs = 0;
-   if( (m_config->scheduler_type == DRAM_FRFCFS ) || (m_config->scheduler_type == DRAM_FRMP) || (m_config->scheduler_type == DRAM_FRLP )){
+   if( (m_config->scheduler_type == DRAM_FRFCFS ) || (m_config->scheduler_type == DRAM_FRMP) || (m_config->scheduler_type == DRAM_FRLP ) || (m_config->scheduler_type == DRAM_FBFRFCFS) ){
       nreqs = m_frfcfs_scheduler->num_pending();
    } else {
       nreqs = mrqq->get_length();
@@ -251,7 +251,7 @@ void dram_t::push( class mem_fetch *data )
    // stats...
    n_req += 1;
    n_req_partial += 1;
-    if( (m_config->scheduler_type == DRAM_FRFCFS ) || (m_config->scheduler_type == DRAM_FRMP) || (m_config->scheduler_type == DRAM_FRLP )){
+    if( (m_config->scheduler_type == DRAM_FRFCFS ) || (m_config->scheduler_type == DRAM_FRMP) || (m_config->scheduler_type == DRAM_FRLP ) || (m_config->scheduler_type == DRAM_FBFRFCFS) ){
       unsigned nreqs = m_frfcfs_scheduler->num_pending();
       if ( nreqs > max_mrqs_temp)
          max_mrqs_temp = nreqs;
@@ -311,14 +311,15 @@ void dram_t::cycle()
 
    switch (m_config->scheduler_type) {
    case DRAM_FIFO: scheduler_fifo(); break;
-   case DRAM_FRFCFS: scheduler_frfcfs(); break;
+   case DRAM_FRFCFS:
+   case DRAM_FBFRFCFS:  scheduler_frfcfs(); break;
    case DRAM_FRMP: scheduler_frfcfs(); break;
    case DRAM_FRLP: scheduler_frfcfs(); break;
 	default:
 		printf("Error: Unknown DRAM scheduler type\n");
 		assert(0);
    }
-    if( (m_config->scheduler_type == DRAM_FRFCFS ) || (m_config->scheduler_type == DRAM_FRMP) || (m_config->scheduler_type == DRAM_FRLP )){
+    if( (m_config->scheduler_type == DRAM_FRFCFS ) || (m_config->scheduler_type == DRAM_FRMP) || (m_config->scheduler_type == DRAM_FRLP ) || (m_config->scheduler_type == DRAM_FBFRFCFS) ){
       unsigned nreqs = m_frfcfs_scheduler->num_pending();
       if ( nreqs > max_mrqs) {
          max_mrqs = nreqs;
@@ -801,7 +802,7 @@ void dram_t::print( FILE* simFile) const
    fprintf(simFile, "\ndram_eff_bins:");
    for (i=0;i<10;i++) fprintf(simFile, " %d", dram_eff_bins[i]);
    fprintf(simFile, "\n");
-   if( (m_config->scheduler_type == DRAM_FRFCFS ) || (m_config->scheduler_type == DRAM_FRMP) || (m_config->scheduler_type == DRAM_FRLP )){
+   if( (m_config->scheduler_type == DRAM_FRFCFS ) || (m_config->scheduler_type == DRAM_FRMP) || (m_config->scheduler_type == DRAM_FRLP) || (m_config->scheduler_type == DRAM_FBFRFCFS) ){
        fprintf(simFile, "mrqq: max=%d avg=%g\n", max_mrqs, (float)ave_mrqs/n_cmd);
    }
 }
