@@ -69,9 +69,17 @@ frfcfs_scheduler::frfcfs_scheduler( const memory_config *config, dram_t *dm, mem
 void frfcfs_scheduler::add_req( dram_req_t *req )
 {
 	//TODO: Use as sample to access cluster, core, and other gpgpu_sim members. Then REMOVE
-	//unsigned cluster = req->data->get_sid() / m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
-	//unsigned core = req->data->get_sid() % m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
-	//printf("DRAM access sid: %d, (cluster, core): (%d, %d)\n", req->data->get_sid(), cluster, core);
+  int sid = req->data->get_sid();
+  bool prioritize = false;
+  if (sid >= 0){
+      unsigned cluster_id = sid / m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
+      unsigned core_id = sid % m_dram->m_gpu->m_shader_config->n_simt_cores_per_cluster;
+      prioritize = m_dram->m_gpu->m_cluster[cluster_id]->get_cores()[core_id]->is_mshr_full();
+      if (prioritize){
+      //  printf("DRAM access sid: %d, (cluster, core) MSHR is full: (%d, %d)\n", req->data->get_sid(), cluster_id, core_id);
+        m_dram->n_prioritized_reqs++;
+      }
+  }
 	//TODO: This was meant to obtain the # of cores requesting this access, however, no benchmarks were found that show this behavior. Or... max merge of MSHR is 0 from the config. Does that default to warp size? Or is it actually avoiding merges? //Susy
   //printf("DRAM access %x, sid: %d, reqs: %d\n", req->data->get_addr(), req->data->get_sid(), m_dram->m_memory_partition_unit->count_requesting_cores(req->data));
   if(m_config->seperate_write_queue_enabled && req->data->is_write()) {
@@ -79,13 +87,19 @@ void frfcfs_scheduler::add_req( dram_req_t *req )
 	  m_num_write_pending++;
 	  m_write_queue[req->bk].push_front(req);
 	  std::list<dram_req_t*>::iterator ptr = m_write_queue[req->bk].begin();
-	  m_write_bins[req->bk][req->row].push_front( ptr ); //newest reqs to the front
+	  if (prioritize)
+	      m_write_bins[req->bk][req->row].push_back( ptr ); //newest reqs to the front
+          else
+	      m_write_bins[req->bk][req->row].push_front( ptr ); //newest reqs to the front
   } else {
 	   assert(m_num_pending < m_config->gpgpu_frfcfs_dram_sched_queue_size);
 	   m_num_pending++;
 	   m_queue[req->bk].push_front(req);
 	   std::list<dram_req_t*>::iterator ptr = m_queue[req->bk].begin();
-	   m_bins[req->bk][req->row].push_front( ptr ); //newest reqs to the front
+	   if (prioritize)
+	       m_bins[req->bk][req->row].push_back( ptr ); //newest reqs to the front
+           else
+	       m_bins[req->bk][req->row].push_front( ptr ); //newest reqs to the front
   }
 }
 

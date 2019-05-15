@@ -743,6 +743,7 @@ void dram_t::print( FILE* simFile) const
    printf("\nBank_Level_Parallism_Ready = %.6f", (float)banks_time_ready /banks_access_ready_total);
    printf("\nwrite_to_read_ratio_blp_rw_average = %.6f", write_to_read_ratio_blp_rw_average /banks_access_rw_total);
    printf("\nGrpLevelPara = %.6f \n", (float)bkgrp_parallsim_rw /banks_access_rw_total);
+   printf("\nn_prioritized_reqs = %d \n", n_prioritized_reqs);
 
    printf("\nBW Util details:\n");
    printf("bwutil = %.6f \n", (float)bwutil/n_cmd);

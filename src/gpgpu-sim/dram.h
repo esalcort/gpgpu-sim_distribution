@@ -250,7 +250,9 @@ private:
    class memory_stats_t *m_stats;
    class Stats* mrqq_Dist; //memory request queue inside DRAM  
    
+   //Susy
    class gpgpu_sim* m_gpu;
+   unsigned int n_prioritized_reqs;
    friend class frfcfs_scheduler;
 };
 

@@ -1266,6 +1266,9 @@ public:
     void get_L1C_sub_stats(struct cache_sub_stats &css) const;
     void get_L1T_sub_stats(struct cache_sub_stats &css) const;
 
+    //Susy
+    bool is_mshr_full(){return m_L1D->is_mshr_full();}
+
 protected:
     ldst_unit( mem_fetch_interface *icnt,
                shader_core_mem_fetch_allocator *mf_allocator,
@@ -2063,6 +2066,8 @@ public:
     bool occupy_shader_resource_1block(kernel_info_t & kernel, bool occupy);
     void release_shader_resource_1block(unsigned hw_ctaid, kernel_info_t & kernel);
     int find_available_hwtid(unsigned int cta_size, bool occupy);
+    //Susy
+    bool is_mshr_full(){return m_ldst_unit->is_mshr_full();}
 private:
     unsigned int m_occupied_n_threads; 
     unsigned int m_occupied_shmem; 
