@@ -71,14 +71,10 @@ enum dram_ctrl_t {
    DRAM_FRFCFS=1,
    DRAM_FRMP=2,
    DRAM_FRLP=3,
-<<<<<<< HEAD
-   DRAM_FBFRFCFS=4 //Full (miss_queue or mshr) to Back and FRFCFS
-=======
    DRAM_FRMP_B=4,
-   DRAM_CLAMS=5
->>>>>>> dev
+   DRAM_CLAMS=5,
+   DRAM_FBFRFCFS=6 //Full (miss_queue or mshr) to Back and FRFCFS
 };
-
 
 
 struct power_config {
