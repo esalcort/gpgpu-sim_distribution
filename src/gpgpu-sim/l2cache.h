@@ -94,6 +94,7 @@ public:
    unsigned get_mpid() const { return m_id; }
 
    class dram_t* get_dram() {return m_dram;}
+   unsigned int count_requesting_cores(mem_fetch * mf);
 
 private: 
 
@@ -186,6 +187,11 @@ public:
    {
         m_L2cache->force_tag_access( addr, m_memcpy_cycle_offset + time, mask );
         m_memcpy_cycle_offset += 1;
+   }
+   unsigned int get_L2mshr_merged(mem_fetch *mf)
+   {
+    new_addr_type mshr_addr = m_L2cache->m_config.mshr_addr(mf->get_addr());
+    return m_L2cache->m_mshrs.count_merged(mshr_addr);
    }
 
 private:

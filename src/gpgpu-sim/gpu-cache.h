@@ -892,7 +892,9 @@ public:
     	assert(m_num_entries==num_entries && "Change of MSHR parameters between kernels is not allowed");
     	assert(m_max_merged==max_merged && "Change of MSHR parameters between kernels is not allowed");
     }
-
+    unsigned count_merged( new_addr_type block_addr ) const;
+    //Susy
+    bool is_mshr_full(){/*printf(" %d,%d,%d, ", m_data.size(), m_num_entries, m_max_merged);*/ return m_data.size() >= m_num_entries;}
 private:
 
     // finite sized, fully associative table, with a finite maximum number of merged requests
@@ -995,6 +997,8 @@ public:
 
     unsigned get_stats(enum mem_access_type *access_type, unsigned num_access_type, enum cache_request_status *access_status, unsigned num_access_status)  const;
     void get_sub_stats(struct cache_sub_stats &css) const;
+    //Susy
+    unsigned get_fail_stats(enum mem_access_type *access_type, unsigned num_access_type, enum cache_reservation_fail_reason *fail_reason, unsigned num_access_status)  const;
 
     void sample_cache_port_utility(bool data_port_busy, bool fill_port_busy); 
 private:
@@ -1195,6 +1199,7 @@ protected:
     }; 
 
     bandwidth_management m_bandwidth_management; 
+    friend class memory_sub_partition;
 };
 
 /// Read only cache
@@ -1458,6 +1463,9 @@ public:
                 mem_fetch *mf,
                 unsigned time,
                 std::list<cache_event> &events );
+
+    //Susy
+    bool is_mshr_full(){return m_mshrs.is_mshr_full();}
 
 protected:
     l1_cache( const char *name,

@@ -290,6 +290,14 @@ void memory_partition_unit::set_dram_power_stats(unsigned &n_cmd,
     m_dram->set_dram_power_stats(n_cmd, n_activity, n_nop, n_act, n_pre, n_rd, n_wr, n_req);
 }
 
+unsigned int memory_partition_unit::count_requesting_cores(mem_fetch * mf)
+{
+    // new_addr_type mshr_addr = m_config->mshr_addr(mf->get_addr());
+    unsigned count = 0;
+    for (unsigned p = 0; p < m_config->m_n_sub_partition_per_memory_channel; p++)
+        count += m_sub_partition[p]->get_L2mshr_merged(mf);
+}
+
 void memory_partition_unit::print( FILE *fp ) const
 {
     fprintf(fp, "Memory Partition %u: \n", m_id); 
