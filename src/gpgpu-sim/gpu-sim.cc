@@ -252,6 +252,10 @@ void shader_core_config::reg_options(class OptionParser * opp)
                    "per-shader L1 data cache config "
                    " {<nsets>:<bsize>:<assoc>,<rep>:<wr>:<alloc>:<wr_alloc>,<mshr>:<N>:<merge>,<mq> | none}",
                    "none" );
+    option_parser_register(opp, "-gpgpu_cache:dl1_mshr_div", OPT_UINT32, &m_L1D_config.m_mshr_sz_div,
+                   "per-shader L1 data cache config mshr division factor"
+                   "mshr_entries = mshr_entries / {num}",
+                   "1" );
     option_parser_register(opp, "-l1_latency", OPT_UINT32, &m_L1D_config.l1_latency,
                  "L1 Hit Latency",
                  "0");

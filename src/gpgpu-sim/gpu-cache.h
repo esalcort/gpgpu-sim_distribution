@@ -507,6 +507,7 @@ public:
         m_data_port_width = 0;
         m_set_index_function = LINEAR_SET_FUNCTION;
         m_is_streaming = false;
+        m_mshr_sz_div = 1; // overwrite by option parser
     }
     void init(char * config, FuncCache status)
     {
@@ -571,6 +572,7 @@ public:
 			m_mshr_entries = m_nset*m_assoc*MAX_DEFAULT_CACHE_SIZE_MULTIBLIER;
 			if(m_cache_type == SECTOR)
 				m_mshr_entries *=  SECTOR_CHUNCK_SIZE;
+			m_mshr_entries = m_mshr_entries / m_mshr_sz_div;
 			m_mshr_max_merge = MAX_WARP_PER_SM;
         }
         switch (mshr_type) {
@@ -717,6 +719,7 @@ public:
     char *m_config_string;
     char *m_config_stringPrefL1;
     char *m_config_stringPrefShared;
+    unsigned m_mshr_sz_div;
     FuncCache cache_status;
 
 protected:
