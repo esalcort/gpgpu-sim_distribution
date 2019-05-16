@@ -125,8 +125,11 @@ dram_t::dram_t( unsigned int partition_id, const struct memory_config *config, m
    } else if (m_config->scheduler_type == DRAM_FRLP){
       m_frfcfs_scheduler = new frlp_scheduler(m_config,this,stats);
       frfcfs_like = true;
-   } else if  (m_config->scheduler_type == DRAM_FBFRFCFS) {
-      m_frfcfs_scheduler = new fbfrfcfs_scheduler(m_config,this,stats);
+   } else if  (m_config->scheduler_type == DRAM_GFBFRFCFS) {
+      m_frfcfs_scheduler = new gfb_frfcfs_scheduler(m_config,this,stats);
+      frfcfs_like = true;
+   } else if  (m_config->scheduler_type == DRAM_LFBFRFCFS) {
+      m_frfcfs_scheduler = new lfb_frfcfs_scheduler(m_config,this,stats);
       frfcfs_like = true;
    } else if (m_config->scheduler_type == DRAM_FRMP_B){
       m_frfcfs_scheduler = new frmpB_scheduler(m_config,this,stats);
@@ -326,7 +329,8 @@ void dram_t::cycle()
    switch (m_config->scheduler_type) {
    case DRAM_FIFO: scheduler_fifo(); break;
    case DRAM_FRFCFS:
-   case DRAM_FBFRFCFS:  scheduler_frfcfs(); break;
+   case DRAM_GFBFRFCFS:
+   case DRAM_LFBFRFCFS:  scheduler_frfcfs(); break;
    case DRAM_FRMP: scheduler_frfcfs(); break;
    case DRAM_FRMP_B: scheduler_frfcfs(); break;
    case DRAM_FRLP: scheduler_frfcfs(); break;

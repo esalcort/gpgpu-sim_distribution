@@ -87,10 +87,20 @@ public:
    frlp_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats );
    virtual dram_req_t *schedule( unsigned bank, unsigned curr_row );
 };
-class fbfrfcfs_scheduler : public frfcfs_scheduler {
+
+class gfb_frfcfs_scheduler : public frfcfs_scheduler {
 public:
-   fbfrfcfs_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats );
-   void add_req( dram_req_t *req );
+   gfb_frfcfs_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats );
+   virtual void add_req( dram_req_t *req );
+   virtual bool evaluate_priority(unsigned fails_count, unsigned cluster_id, unsigned core_id);
+   static unsigned m_last_max_miss_queue_full;
+};
+
+class lfb_frfcfs_scheduler : public gfb_frfcfs_scheduler {
+public:
+   lfb_frfcfs_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats );
+   //void add_req( dram_req_t *req );
+   bool evaluate_priority(unsigned fails_count, unsigned cluster_id, unsigned core_id);
 private:
    struct res_fail_timestamp
    {
@@ -99,6 +109,7 @@ private:
    } **m_fail_table;
 
 };
+
 class clams_scheduler : public frfcfs_scheduler {
 public:
    clams_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats );

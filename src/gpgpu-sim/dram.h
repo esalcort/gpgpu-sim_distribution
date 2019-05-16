@@ -259,7 +259,8 @@ private:
    friend class frmp_scheduler;
    friend class frmpB_scheduler;
    friend class frlp_scheduler;
-   friend class fbfrfcfs_scheduler;
+   friend class gfb_frfcfs_scheduler;
+   friend class lfb_frfcfs_scheduler;
    friend class clams_scheduler;
 };
 
