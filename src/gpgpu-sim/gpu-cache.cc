@@ -558,6 +558,13 @@ bool mshr_table::is_read_after_write_pending( new_addr_type block_addr){
 
 }
 
+unsigned mshr_table::count_merged( new_addr_type block_addr ) const{
+    table::const_iterator a = m_data.find(block_addr);
+    if (a != m_data.end())
+        return a->second.m_list.size();
+    return 0;
+}
+
 /// Accept a new cache fill response: mark entry ready for processing
 void mshr_table::mark_ready( new_addr_type block_addr, bool &has_atomic ){
     assert( !busy() );
@@ -800,6 +807,18 @@ unsigned cache_stats::get_stats(enum mem_access_type *access_type, unsigned num_
             if(!check_valid((int)access_type[type], (int)access_status[status]))
                 assert(0 && "Unknown cache access type or access outcome");
             total += m_stats[access_type[type]][access_status[status]];
+        }
+    }
+    return total;
+}
+//Susy
+unsigned cache_stats::get_fail_stats(enum mem_access_type *access_type, unsigned num_access_type, enum cache_reservation_fail_reason *fail_reason, unsigned num_access_status)  const {
+    unsigned total=0;
+    for(unsigned type =0; type < num_access_type; ++type){
+        for(unsigned status=0; status < num_access_status; ++status){
+            if(!check_fail_valid((int)access_type[type], (int)fail_reason[status]))
+                assert(0 && "Unknown cache access type or access outcome");
+            total += m_fail_stats[access_type[type]][fail_reason[status]];
         }
     }
     return total;

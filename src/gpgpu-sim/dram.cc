@@ -110,6 +110,7 @@ dram_t::dram_t( unsigned int partition_id, const struct memory_config *config, m
    }
    prio = 0;
 
+   m_gpu = gpu;
    rwq = new fifo_pipeline<dram_req_t>("rwq",m_config->CL,m_config->CL+1);
    mrqq = new fifo_pipeline<dram_req_t>("mrqq",0,2);
    returnq = new fifo_pipeline<mem_fetch>("dramreturnq",0,m_config->gpgpu_dram_return_queue_size==0?1024:m_config->gpgpu_dram_return_queue_size); 
@@ -123,6 +124,12 @@ dram_t::dram_t( unsigned int partition_id, const struct memory_config *config, m
       frfcfs_like = true;
    } else if (m_config->scheduler_type == DRAM_FRLP){
       m_frfcfs_scheduler = new frlp_scheduler(m_config,this,stats);
+      frfcfs_like = true;
+   } else if  (m_config->scheduler_type == DRAM_GFBFRFCFS) {
+      m_frfcfs_scheduler = new gfb_frfcfs_scheduler(m_config,this,stats);
+      frfcfs_like = true;
+   } else if  (m_config->scheduler_type == DRAM_LFBFRFCFS) {
+      m_frfcfs_scheduler = new lfb_frfcfs_scheduler(m_config,this,stats);
       frfcfs_like = true;
    } else if (m_config->scheduler_type == DRAM_FRMP_B){
       m_frfcfs_scheduler = new frmpB_scheduler(m_config,this,stats);
@@ -325,7 +332,9 @@ void dram_t::cycle()
 
    switch (m_config->scheduler_type) {
    case DRAM_FIFO: scheduler_fifo(); break;
-   case DRAM_FRFCFS: scheduler_frfcfs(); break;
+   case DRAM_FRFCFS:
+   case DRAM_GFBFRFCFS:
+   case DRAM_LFBFRFCFS:  scheduler_frfcfs(); break;
    case DRAM_FRMP: scheduler_frfcfs(); break;
    case DRAM_FRMP_B: scheduler_frfcfs(); break;
    case DRAM_FRLP: scheduler_frfcfs(); break;
@@ -768,6 +777,7 @@ void dram_t::print( FILE* simFile) const
    printf("\nBank_Level_Parallism_Ready = %.6f", (float)banks_time_ready /banks_access_ready_total);
    printf("\nwrite_to_read_ratio_blp_rw_average = %.6f", write_to_read_ratio_blp_rw_average /banks_access_rw_total);
    printf("\nGrpLevelPara = %.6f \n", (float)bkgrp_parallsim_rw /banks_access_rw_total);
+   printf("\nn_prioritized_reqs = %d \n", n_prioritized_reqs);
 
    printf("\nBW Util details:\n");
    printf("bwutil = %.6f \n", (float)bwutil/n_cmd);

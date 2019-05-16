@@ -73,11 +73,10 @@ enum dram_ctrl_t {
    DRAM_FRLP=3,
    DRAM_FRMP_B=4,
    DRAM_CLAMS=5,
-   SUSY_A=6,
-   SUSY_B=7,
+   DRAM_GFBFRFCFS=6, //Global Full (miss_queue or mshr) to Back and FRFCFS
+   DRAM_LFBFRFCFS=7, //Local (per-core and partition) Full (miss_queue or mshr) to Back and FRFCFS
    DRAM_CLAMS_R=8
 };
-
 
 
 struct power_config {
@@ -610,6 +609,8 @@ friend class dram_t;
 friend class frfcfs_scheduler;
 friend class frmp_scheduler;
 friend class frlp_scheduler;
+friend class gfb_frfcfs_scheduler;
+friend class lfb_frfcfs_scheduler;
 friend class frmpB_scheduler;
 friend class clams_scheduler;
 };
