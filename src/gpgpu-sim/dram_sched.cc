@@ -646,11 +646,11 @@ dram_req_t *clams_scheduler::schedule( unsigned bank, unsigned curr_row )
     }
     std::map<int, std::pair<int, dram_req_t*> > qid_count;
 
-    //std::cout << "lqid: " << m_last_qid;
-    //std::cout << " q:[" ;
+    std::cout << "lqid: " << m_last_qid;
+    std::cout << " q:[" ;
     for (auto q_item = m_current_queue[bank].rbegin(); q_item != m_current_queue[bank].rend(); ++q_item){
         int qid = (*q_item)->data->get_wid() + ((*q_item)->data->get_sid() * 1024);
-     //   std::cout << qid << " , ";
+        std::cout << qid << " , ";
         auto f_it = qid_count.find(qid);
         if (f_it != qid_count.end()){
             f_it->second.first++;
@@ -658,28 +658,41 @@ dram_req_t *clams_scheduler::schedule( unsigned bank, unsigned curr_row )
             qid_count[qid] = std::make_pair(0,*q_item);
         }
     }
-    //std::cout << "]" << std::endl;
+    std::cout << "]" << std::endl;
 
+    std::vector<std::pair<int,dram_req_t*> > row_match;
     std::vector<std::pair<int,dram_req_t*> > min_l;
     int min_v = std::numeric_limits<int>::max();
     for (auto it = qid_count.cbegin(); it != qid_count.cend(); ++it){
+        dram_req_t* tmp_req = it->second.second;
+        int qid = it->first;
         if (it->second.first < min_v){
             min_v = it->second.first; 
             min_l.clear();
         }
         if (it->second.first == min_v) {
-            dram_req_t* tmp_req = it->second.second;
-            int qid = it->first;
             min_l.push_back(std::make_pair(qid,tmp_req));
+        }
+        if (it->second.second->row == curr_row){
+            row_match.push_back(std::make_pair(qid,tmp_req));
         }
     }
 
+    std::cout << "rmatch: " << row_match.size() << std::endl;
+
     assert(min_l.size() != 0); //what happened here?
 
+    //break ties by previous queue or row hit
     dram_req_t *req = min_l.back().second;
     for (auto min_l_pair : min_l){
+        if (min_l_pair.second->row == curr_row){
+            req = min_l_pair.second;
+            std::cout << "tb: rh" << std::endl;
+            break;
+        }
         if (min_l_pair.first == m_last_qid){
             req = min_l_pair.second;
+            std::cout << "tb: lq" << std::endl;
             break;
         }
     }
@@ -688,11 +701,13 @@ dram_req_t *clams_scheduler::schedule( unsigned bank, unsigned curr_row )
         assert(0);
     }
     
-    m_last_qid = req->data->get_wid() + (req->data->get_sid() * 1024);
-    //std::cout << "sch: qid" << m_last_qid << std::endl; 
- 
+    
     data_collection(bank);
-    rowhit = false;
+    rowhit = (req->row == curr_row);
+    
+    m_last_qid = req->data->get_wid() + (req->data->get_sid() * 1024);
+    std::cout << "sch: qid" << m_last_qid << " rh? " << rowhit << std::endl; 
+ 
 
     //rowblp stats
     m_dram->access_num++;
@@ -701,6 +716,18 @@ dram_req_t *clams_scheduler::schedule( unsigned bank, unsigned curr_row )
             m_dram->write_num++;
         else
             m_dram->read_num++;
+
+
+    if(rowhit) {
+        m_dram->hits_num++;
+        if(is_write)
+            m_dram->hits_write_num++;
+        else
+            m_dram->hits_read_num++;
+    }
+
+    m_stats->concurrent_row_access[m_dram->id][bank]++;
+    m_stats->row_access[m_dram->id][bank]++;
 
     m_current_queue[bank].remove(req);
    
