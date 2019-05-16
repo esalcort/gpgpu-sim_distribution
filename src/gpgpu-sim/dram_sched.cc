@@ -744,6 +744,159 @@ dram_req_t *clams_scheduler::schedule( unsigned bank, unsigned curr_row )
 }
 
 
+clamsR_scheduler::clamsR_scheduler( const memory_config *config, dram_t *dm, memory_stats_t *stats) : frfcfs_scheduler(config, dm, stats){
+    //nothing special
+    int last_qid = 0;
+}
+
+
+dram_req_t *clamsR_scheduler::schedule( unsigned bank, unsigned curr_row )
+{
+    //row
+    bool rowhit = true;
+    std::list<dram_req_t*> *m_current_queue = m_queue;
+
+    if(m_config->seperate_write_queue_enabled) {
+        if(m_mode == READ_MODE &&
+                ((m_num_write_pending >= m_config->write_high_watermark )
+                 // || (m_queue[bank].empty() && !m_write_queue[bank].empty())
+                )) {
+            m_mode = WRITE_MODE;
+        }
+        else if(m_mode == WRITE_MODE &&
+                (( m_num_write_pending < m_config->write_low_watermark )
+                 //  || (!m_queue[bank].empty() && m_write_queue[bank].empty())
+                )){
+            m_mode = READ_MODE;
+        }
+    }
+
+    if(m_mode == WRITE_MODE) {
+        m_current_queue = m_write_queue;
+    }
+
+     //find the max pressure in the queue
+       
+    if ( m_current_queue[bank].empty() ){
+        return NULL;
+    }
+    std::map<int, std::pair<int, dram_req_t*> > qid_count;
+
+    std::cout << "lqid: " << m_last_qid;
+    std::cout << " q:[" ;
+    for (auto q_item = m_current_queue[bank].rbegin(); q_item != m_current_queue[bank].rend(); ++q_item){
+        int qid = (*q_item)->data->get_wid() + ((*q_item)->data->get_sid() * 1024);
+        std::cout << qid << " , ";
+        auto f_it = qid_count.find(qid);
+        if (f_it != qid_count.end()){
+            f_it->second.first++;
+        } else {
+            qid_count[qid] = std::make_pair(0,*q_item);
+        }
+    }
+    std::cout << "]" << std::endl;
+
+    std::vector<std::pair<int,dram_req_t*> > row_match;
+    std::vector<std::pair<int,dram_req_t*> > min_l;
+    int min_v = std::numeric_limits<int>::max();
+    for (auto it = qid_count.cbegin(); it != qid_count.cend(); ++it){
+        dram_req_t* tmp_req = it->second.second;
+        int qid = it->first;
+        if (it->second.first < min_v){
+            min_v = it->second.first; 
+            min_l.clear();
+        }
+        if (it->second.first == min_v) {
+            min_l.push_back(std::make_pair(qid,tmp_req));
+        }
+        if (it->second.second->row == curr_row){
+            row_match.push_back(std::make_pair(qid,tmp_req));
+        }
+    }
+
+    std::cout << "rmatch: " << row_match.size() << std::endl;
+
+    assert(min_l.size() != 0); //what happened here?
+
+    dram_req_t *req = nullptr;
+    //If we have row matches select from those
+    if (row_match.size() > 0){
+        req = row_match.back().second; //last in queue by default
+
+        std::cout << "sel matching" << std::endl;
+        for (auto r_match_pair : row_match){
+            //If we have a previous qid, select that one
+            if (r_match_pair.first == m_last_qid){
+                req = r_match_pair.second;
+                std::cout << "tb-r: lq" << std::endl;
+                break;
+            }
+        }
+    } else {
+        //If we have no row matches, select the smallest warp id set avail
+        //break ties by previous queue or row hit
+        std::cout << "sel min" << std::endl;
+
+        req = min_l.back().second; //last in queue by default
+        for (auto min_l_pair : min_l){
+            if (min_l_pair.second->row == curr_row){
+                req = min_l_pair.second;
+                std::cout << "tb: rh" << std::endl;
+                break;
+            }
+            if (min_l_pair.first == m_last_qid){
+                req = min_l_pair.second;
+                std::cout << "tb: lq" << std::endl;
+                break;
+            }
+        }
+    }
+
+    if (req == nullptr){
+        assert(0);
+    }
+    
+    
+    data_collection(bank);
+    rowhit = (req->row == curr_row);
+    
+    m_last_qid = req->data->get_wid() + (req->data->get_sid() * 1024);
+    std::cout << "sch: qid" << m_last_qid << " rh? " << rowhit << std::endl; 
+ 
+
+    //rowblp stats
+    m_dram->access_num++;
+    bool is_write = req->data->is_write();
+        if(is_write)
+            m_dram->write_num++;
+        else
+            m_dram->read_num++;
+
+
+    if(rowhit) {
+        m_dram->hits_num++;
+        if(is_write)
+            m_dram->hits_write_num++;
+        else
+            m_dram->hits_read_num++;
+    }
+
+    m_stats->concurrent_row_access[m_dram->id][bank]++;
+    m_stats->row_access[m_dram->id][bank]++;
+
+    m_current_queue[bank].remove(req);
+   
+    if(m_config->seperate_write_queue_enabled && req->data->is_write()) {
+        assert( req != NULL && m_num_write_pending != 0 );
+        m_num_write_pending--;
+    }
+    else {
+        assert( req != NULL && m_num_pending != 0 );
+        m_num_pending--;
+    }
+
+    return req;
+}
 
 /*
  *=======

@@ -258,6 +258,7 @@ private:
    friend class frmpB_scheduler;
    friend class frlp_scheduler;
    friend class clams_scheduler;
+   friend class clamsR_scheduler;
 };
 
 #endif /*DRAM_H*/

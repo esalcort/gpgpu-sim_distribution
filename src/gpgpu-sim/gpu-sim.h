@@ -72,7 +72,10 @@ enum dram_ctrl_t {
    DRAM_FRMP=2,
    DRAM_FRLP=3,
    DRAM_FRMP_B=4,
-   DRAM_CLAMS=5
+   DRAM_CLAMS=5,
+   SUSY_A=6,
+   SUSY_B=7,
+   DRAM_CLAMS_R=8
 };
 
 
